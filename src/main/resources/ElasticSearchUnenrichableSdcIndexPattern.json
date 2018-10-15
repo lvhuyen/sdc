@@ -1,0 +1,109 @@
+{
+	"order": 0,
+	"template": "copper-sdc-unenrichable-prod-*",
+	"mappings": {
+		"_doc": {
+			"dynamic": false,
+			"_all": {
+				"enabled": false
+			},
+			"_source": {
+				"enabled": true
+			},
+			"properties": {
+				"dslam": {
+					"type": "keyword",
+					"ignore_above": 32,
+					"index": true
+				},
+				"extendUserPortFdbUserAddress": {
+					"type": "keyword",
+					"ignore_above": 32,
+					"index": true
+				},
+				"metrics_timestamp": {
+					"type": "long"
+				},
+				"port": {
+					"type": "keyword",
+					"ignore_above": 128,
+					"index": true
+				},
+				"xdslFarEndChannelActualNetDataRateDownstream": {
+					"type": "integer",
+					"index": false
+				},
+				"xdslChannelActualNetDataRateUpstream": {
+					"type": "integer",
+					"index": false
+				},
+				"xdslFarEndLineLoopAttenuationDownstream": {
+					"type": "float",
+					"index": false
+				},
+				"xdslFarEndChannelAttainableNetDataRateDownstream": {
+					"type": "integer",
+					"index": false
+				},
+				"xdslChannelAttainableNetDataRateUpstream": {
+					"type": "integer",
+					"index": false
+				},
+				"ifAdminStatus": {
+					"type": "keyword",
+					"ignore_above": 8,
+					"index": false
+				},
+				"ifOperStatus": {
+					"type": "keyword",
+					"ignore_above": 8,
+					"index": false
+				},
+				"xdslFarEndLinePreviousIntervalLPRCounter": {
+					"type": "integer",
+					"index": false
+				},
+				"xdslLinePreviousIntervalReInitCounter": {
+					"type": "integer",
+					"index": false
+				},
+				"xdslChannelPreviousIntervalRetransmDtuCounterDS": {
+					"type": "integer",
+					"index": false
+				},
+				"xdslFarEndChannelPreviousIntervalRetransmDtuCounterUS": {
+					"type": "integer",
+					"index": false
+				},
+				"xdslLinePreviousIntervalSESCounter": {
+					"type": "integer",
+					"index": false
+				},
+				"xdslFarEndLinePreviousIntervalSESCounter": {
+					"type": "integer",
+					"index": false
+				},
+				"enrich_timestamp": {
+					"type": "long",
+					"index": false
+				},
+				"xdslLinePreviousIntervalUASCounter": {
+					"type": "integer",
+					"index": false
+				},
+				"xdslFarEndChannelPreviousIntervalUnCorrDtuCounterDS": {
+					"type": "integer",
+					"index": false
+				},
+				"xdslChannelPreviousIntervalUnCorrDtuCounterUS": {
+					"type": "integer",
+					"index": false
+				}			}
+
+		}
+	},
+	"aliases": {
+		"copper-sdc-unenrichable-prod": {}
+	}
+}
+PUT /_template/copper-sdc-unenrichable-prod-template

@@ -1,0 +1,70 @@
+{
+	"order": 0,
+	"template": "copper-sdc-average-prod-*",
+	"mappings": {
+		"_doc": {
+			"dynamic": false,
+			"_all": {
+				"enabled": false
+			},
+			"_source": {
+				"enabled": true
+			},
+			"properties": {
+				"xdslFarEndChannelAttainableNetDataRateDownstream": {
+					"type": "integer",
+					"index": true
+				},
+				"xdslChannelAttainableNetDataRateUpstream": {
+					"type": "integer",
+					"index": true
+				},
+				"averageDs": {
+					"type": "integer",
+					"index": true
+				},
+				"averageUs": {
+					"type": "integer",
+					"index": true
+				},
+				"avcid": {
+					"type": "keyword",
+					"ignore_above": 32,
+					"index": true
+				},
+				"cpi": {
+					"type": "keyword",
+					"ignore_above": 32,
+					"index": true
+				},
+				"dslam": {
+					"type": "keyword",
+					"ignore_above": 32,
+					"index": true
+				},
+				"port": {
+					"type": "keyword",
+					"ignore_above": 32,
+					"index": true
+				},
+				"measurementsCount": {
+					"type": "short",
+					"index": true
+				},
+				"metrics_timestamp": {
+					"type": "long",
+					"index": true
+				},
+				"enrich_timestamp": {
+					"type": "long",
+					"index": false
+				}
+			}
+
+		}
+	},
+	"aliases": {
+		"copper-sdc-average-prod": {}
+	}
+}
+PUT /_template/copper-sdc-average-prod-template

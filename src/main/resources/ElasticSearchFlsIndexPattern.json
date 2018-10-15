@@ -1,0 +1,46 @@
+{
+	"order": 0,
+	"template": "copper-fls-prod-*",
+	"mappings": {
+		"_doc": {
+			"dynamic": false,
+			"_all": {
+				"enabled": false
+			},
+			"_source": {
+				"enabled": false
+			},
+			"properties": {
+				"avcid": {
+					"type": "keyword",
+					"ignore_above": 32,
+					"index": true
+				},
+				"cpi": {
+					"type": "keyword",
+					"ignore_above": 32,
+					"index": true
+				},
+				"dslam": {
+					"type": "keyword",
+					"ignore_above": 32,
+					"index": true
+				},
+				"port": {
+					"type": "keyword",
+					"ignore_above": 32,
+					"index": true
+				},
+				"metrics_timestamp": {
+					"type": "long",
+					"index": true
+				}
+			}
+
+		}
+	},
+	"aliases": {
+		"copper-fls-prod": {}
+	}
+}
+PUT /_template/copper-fls-prod-template

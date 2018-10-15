@@ -1,0 +1,47 @@
+{
+	"type" : "record",
+	"name" : "SdcRawInstant",
+	"namespace" : "com.nbnco.csa.analysis.copper.sdc.data",
+	"fields" : [ {
+		"name" : "ts",
+		"type" : "long"
+	}, {
+		"name" : "dslam",
+		"type" : "string"
+	}, {
+		"name" : "port",
+		"type" : "string"
+	}, {
+		"name" : "data",
+		"type" : {
+			"type" : "record",
+			"name" : "SdcDataInstant",
+			"fields" : [
+				{
+					"name" : "if_admin_status",
+					"type" : "string"
+				}, {
+					"name" : "if_oper_status",
+					"type" : "string"
+				}, {
+					"name" : "actual_ds",
+					"type" : "int"
+				}, {
+					"name" : "actual_us",
+					"type" : "int"
+				}, {
+					"name" : "attndr_ds",
+					"type" : "int"
+				}, {
+					"name" : "attndr_us",
+					"type" : "int"
+				}, {
+					"name" : "attenuation_ds",
+					"type" : "string"
+				}, {
+					"name" : "user_mac_address",
+					"type" : "string"
+				} ]
+		}
+	} ]
+}

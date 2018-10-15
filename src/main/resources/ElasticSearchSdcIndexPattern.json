@@ -1,0 +1,121 @@
+{
+	"order": 0,
+	"template": "copper-sdc-combined-prod-*",
+	"mappings": {
+		"_doc": {
+			"dynamic": false,
+			"_all": {
+				"enabled": false
+			},
+			"_source": {
+				"enabled": true
+			},
+			"properties": {
+				"xdslFarEndChannelActualNetDataRateDownstream": {
+					"type": "integer",
+					"index": false
+				},
+				"xdslChannelActualNetDataRateUpstream": {
+					"type": "integer",
+					"index": false
+				},
+				"xdslFarEndLineLoopAttenuationDownstream": {
+					"type": "float",
+					"index": false
+				},
+				"xdslFarEndChannelAttainableNetDataRateDownstream": {
+					"type": "integer",
+					"index": true
+				},
+				"xdslChannelAttainableNetDataRateUpstream": {
+					"type": "integer",
+					"index": true
+				},
+				"avcid": {
+					"type": "keyword",
+					"ignore_above": 32,
+					"index": true
+				},
+				"cpi": {
+					"type": "keyword",
+					"ignore_above": 32,
+					"index": true
+				},
+				"dslam": {
+					"type": "keyword",
+					"ignore_above": 32,
+					"index": true
+				},
+				"ifAdminStatus": {
+					"type": "keyword",
+					"ignore_above": 8,
+					"index": true
+				},
+				"ifOperStatus": {
+					"type": "keyword",
+					"ignore_above": 8,
+					"index": true
+				},
+				"xdslFarEndLinePreviousIntervalLPRCounter": {
+					"type": "integer",
+					"index": false
+				},
+				"extendUserPortFdbUserAddress": {
+					"type": "keyword",
+					"ignore_above": 32,
+					"index": true
+				},
+				"port": {
+					"type": "keyword",
+					"ignore_above": 32,
+					"index": true
+				},
+				"xdslLinePreviousIntervalReInitCounter": {
+					"type": "integer",
+					"index": true
+				},
+				"xdslChannelPreviousIntervalRetransmDtuCounterDS": {
+					"type": "integer",
+					"index": true
+				},
+				"xdslFarEndChannelPreviousIntervalRetransmDtuCounterUS": {
+					"type": "integer",
+					"index": true
+				},
+				"xdslLinePreviousIntervalSESCounter": {
+					"type": "integer",
+					"index": false
+				},
+				"xdslFarEndLinePreviousIntervalSESCounter": {
+					"type": "integer",
+					"index": false
+				},
+				"metrics_timestamp": {
+					"type": "long",
+					"index": true
+				},
+				"enrich_timestamp": {
+					"type": "long",
+					"index": false
+				},
+				"xdslLinePreviousIntervalUASCounter": {
+					"type": "integer",
+					"index": false
+				},
+				"xdslFarEndChannelPreviousIntervalUnCorrDtuCounterDS": {
+					"type": "integer",
+					"index": false
+				},
+				"xdslChannelPreviousIntervalUnCorrDtuCounterUS": {
+					"type": "integer",
+					"index": false
+				}
+			}
+
+		}
+	},
+	"aliases": {
+		"copper-sdc-combined-prod": {}
+	}
+}
+PUT /_template/copper-sdc-combined-prod-template
