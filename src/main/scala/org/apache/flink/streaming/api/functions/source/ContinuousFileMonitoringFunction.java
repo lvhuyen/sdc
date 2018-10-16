@@ -38,6 +38,12 @@ import org.slf4j.LoggerFactory;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.time.LocalDate;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 /**
@@ -110,13 +116,16 @@ public class ContinuousFileMonitoringFunction<OUT>
 
     /** The current directory watermark, used to skip reading old directories */
 
-    private volatile long dirWatermark = 1537228800000L;
+    private volatile Instant dirWatermark = Instant.ofEpochMilli(Long.MIN_VALUE);
 //    private volatile long dirWatermark = 1505433600000L;
 
     /** Max amount of time between latest directory and the directory that will be eligible to scan */
-    private final long dirScanChunkSize;
-    private final long dirRescanInterval;
+    private final long dirScanChunkSizeInSeconds;
+    private final long dirRescanIntervalInSeconds;
     private final java.text.SimpleDateFormat DIR_TIME_FORMAT;
+    private final java.text.SimpleDateFormat DIR_DATE_FORMAT;
+    public static final Instant IGNORE_THIS_DIRECTORY = Instant.MIN;
+    public static final Instant ACCEPT_THIS_DIRECTORY = Instant.MAX;
 
     /** Max amount of time between latest directory and the directory that will be eligible to scan */
 
@@ -183,6 +192,8 @@ public class ContinuousFileMonitoringFunction<OUT>
         this.basePath = new Path(path).getPath() + "/";
         this.DIR_TIME_FORMAT = new java.text.SimpleDateFormat("yyyyMMdd/HHmm");
         this.DIR_TIME_FORMAT.setTimeZone(TimeZone.getTimeZone("UTC"));
+        this.DIR_DATE_FORMAT = new java.text.SimpleDateFormat("yyyyMMdd");
+        this.DIR_DATE_FORMAT.setTimeZone(TimeZone.getTimeZone("UTC"));
 
         this.interval = interval;
         this.watchType = watchType;
@@ -193,12 +204,13 @@ public class ContinuousFileMonitoringFunction<OUT>
         this.processedFiles = new HashMap<>();
 
         if (this.readConsistencyOffset > 10) {
-            this.dirScanChunkSize = 900000L;
-            this.dirRescanInterval = 4 * dirScanChunkSize;
+            this.dirScanChunkSizeInSeconds = 900L;
+            this.dirRescanIntervalInSeconds = 4 * dirScanChunkSizeInSeconds;
         } else {
-            this.dirScanChunkSize = 0L;
-            this.dirRescanInterval = Long.MAX_VALUE / 2L;
+            this.dirScanChunkSizeInSeconds = 0L;
+            this.dirRescanIntervalInSeconds = Integer.MAX_VALUE;
         }
+        dirWatermark = dirWatermark.plusSeconds(dirRescanIntervalInSeconds);
     }
 
     @VisibleForTesting
@@ -298,7 +310,7 @@ public class ContinuousFileMonitoringFunction<OUT>
                 }
 
                 if (retrievedStates3.size() == 1) {
-                    this.dirWatermark = retrievedStates3.get(0);
+                    this.dirWatermark = Instant.ofEpochMilli(retrievedStates3.get(0));
                     LOG.info("{} retrieved a directory watermark for {} of {}.",
                             getClass().getSimpleName(), this.path, dirWatermark);
                 }
@@ -364,60 +376,49 @@ public class ContinuousFileMonitoringFunction<OUT>
         }
     }
 
-    protected boolean acceptDir(FileStatus directory, long begin, long end) {
-        if (this.dirScanChunkSize <= 0) {
-            return true;
-        }
-        String relativePath = directory.getPath().getPath().split(basePath, 2)[1];
-        String dirs[] = relativePath.split("/");
-        try {
-            if (dirs.length == 0) {
-                return true;
-            } else if (dirs.length == 1) {
-                return true;
-            } else {
-                long dirTime = this.DIR_TIME_FORMAT.parse(relativePath).getTime();
-                return (dirTime >= begin && dirTime < end);
-            }
-        } catch (java.text.ParseException ex) {
-//            LOG.info("Directory is not in date-time format: " + relativePath);
-            return true;
-        }
-    }
-
     private void monitorDirAndForwardSplits(FileSystem fs,
                                             SourceContext<TimestampedFileInputSplit> context) throws IOException {
 
-//        LOG.info(path + " before watermark: " + dirWatermark);
         assert (Thread.holdsLock(checkpointLock));
 
-        long dirScanWindowStart = dirWatermark - dirRescanInterval;
-        Map<Path, FileStatus> eligibleFiles = listEligibleFiles(fs, new Path(path), dirScanWindowStart, dirScanWindowStart + dirScanChunkSize);
-        Map<Long, List<TimestampedFileInputSplit>> splitsSortedByModTime = getInputSplitsSortedByModTime(eligibleFiles);
+        Map<Path, FileStatus> eligibleFiles;
+        if (dirScanChunkSizeInSeconds > 0) {
+            eligibleFiles = new HashMap<>();
+            Map<Instant, List<FileStatus>> availableDirs = listDirsAfterTimestamp(fs, new Path(path),
+                    dirWatermark.minusSeconds(dirRescanIntervalInSeconds));
 
-        if (dirScanChunkSize > 0) {
-            for (;
-                 isRunning &&
-                         (splitsSortedByModTime.size() == 0)
-//                         && (splitsSortedByModTime != Collections.EMPTY_MAP)
-                         && (dirScanWindowStart < new java.util.Date().getTime()); ) {
-//                if (LOG.isDebugEnabled())
-//                    LOG.debug(path + ": futureMark " + dirScanWindowStart + " eligibleSize " + eligibleFiles.size() );
-                dirScanWindowStart += dirScanChunkSize;
-                eligibleFiles = listEligibleFiles(fs, new Path(path), dirScanWindowStart, dirScanWindowStart + dirScanChunkSize);
-                splitsSortedByModTime = getInputSplitsSortedByModTime(eligibleFiles);
+            if (availableDirs.size() > 0) {
+                Instant curWindowBegin = availableDirs.keySet().iterator().next();
+                Instant curWindowEnd = curWindowBegin.plusSeconds(dirScanChunkSizeInSeconds);
+
+                for (Map.Entry<Instant, List<FileStatus>> directories : availableDirs.entrySet()) {
+                    Instant curDirTimestamp = directories.getKey();
+                    if (!curWindowEnd.isAfter(curDirTimestamp)) {
+                        if (eligibleFiles.size() > 0) {
+                            break;
+                        } else {
+                            curWindowBegin = curWindowEnd;
+                            curWindowEnd = curWindowBegin.plusSeconds(dirScanChunkSizeInSeconds);
+                        }
+                    }
+                    for (FileStatus directory : directories.getValue()) {
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("Listing files in dir: " + directory);
+                        }
+                        eligibleFiles.putAll(listEligibleFiles(fs, directory.getPath()));
+                    }
+                }
+
+                if (eligibleFiles.size() > 0 && curWindowBegin.isAfter(dirWatermark)) {
+                    LOG.warn("{} has dir watermark being advanced from {} to {}", path, dirWatermark, curWindowBegin);
+                    dirWatermark = curWindowBegin;
+                }
             }
-//            if (splitsSortedByModTime.size() > 0)
-//                LOG.info(path + "Break because split size = " + splitsSortedByModTime.size());
-//            if (splitsSortedByModTime == Collections.EMPTY_MAP)
-//                LOG.info(path + "Break because of EMPTY_MAP");
-//            LOG.info(path + " after watermark: " + dirWatermark + " and futureMark: " + dirScanWindowStart);
+        } else {
+            eligibleFiles = listEligibleFiles(fs, new Path(path));
         }
 
-        if (dirScanWindowStart > dirWatermark && splitsSortedByModTime.size() > 0) {
-            LOG.warn("{} has dir watermark being moved from {} to {}", path, dirWatermark, dirScanWindowStart);
-            dirWatermark = dirScanWindowStart;
-        }
+        Map<Long, List<TimestampedFileInputSplit>> splitsSortedByModTime = getInputSplitsSortedByModTime(eligibleFiles);
 
         for (Map.Entry<Long, List<TimestampedFileInputSplit>> splits: splitsSortedByModTime.entrySet()) {
             long modificationTime = splits.getKey();
@@ -506,7 +507,44 @@ public class ContinuousFileMonitoringFunction<OUT>
      * Returns the paths of the files not yet processed.
      * @param fileSystem The filesystem where the monitored directory resides.
      */
-    private Map<Path, FileStatus> listEligibleFiles(FileSystem fileSystem, Path path, long begin, long end) throws IOException {
+    private Map<Path, FileStatus> listEligibleFiles(FileSystem fileSystem, Path path) throws IOException {
+
+        final FileStatus[] statuses;
+        try {
+            statuses = fileSystem.listStatus(path);
+        } catch (IOException e) {
+            // we may run into an IOException if files are moved while listing their status
+            // delay the check for eligible files in this case
+            return Collections.emptyMap();
+        }
+
+        if (statuses == null) {
+            LOG.warn("Path does not exist: {}", path);
+            return Collections.emptyMap();
+        } else {
+            Map<Path, FileStatus> files = new HashMap<>();
+            // handle the new files
+            for (FileStatus status : statuses) {
+                if (format.acceptFile(status)) {
+                    if (!status.isDir()) {
+                        Path filePath = status.getPath();
+                        long modificationTime = status.getModificationTime();
+                        if (!shouldIgnore(filePath, modificationTime)) {
+                            files.put(filePath, status);
+                        }
+                    } else if (format.getNestedFileEnumeration()) {
+                        files.putAll(listEligibleFiles(fileSystem, status.getPath()));
+                    }
+                }
+            }
+            return files;
+        }
+    }
+    /**
+     * Returns the paths of the files not yet processed.
+     * @param fileSystem The filesystem where the monitored directory resides.
+     */
+    private Map<Instant, List<FileStatus>> listDirsAfterTimestamp(FileSystem fileSystem, Path path, Instant watermark) throws IOException {
 
         final FileStatus[] statuses;
         try {
@@ -523,20 +561,64 @@ public class ContinuousFileMonitoringFunction<OUT>
         } else if (statuses.length == 0) {
             return Collections.emptyMap();
         } else {
-            Map<Path, FileStatus> files = new HashMap<>();
+            Map<Instant, List<FileStatus>> dirsSortedByTimestamp = new TreeMap<>();
             // handle the new files
             for (FileStatus status : statuses) {
-                if (!status.isDir()) {
-                    Path filePath = status.getPath();
-                    long modificationTime = status.getModificationTime();
-                    if (!shouldIgnore(filePath, modificationTime)) {
-                        files.put(filePath, status);
+                if (status.isDir() && format.acceptFile(status)) {
+                    ChronoUnit curDirLevel = getDirectoryLevel(status);
+                    Instant curDirTimestamp = getDirectoryTimestamp(status);
+                    switch (curDirLevel) {
+                        case FOREVER:
+                            dirsSortedByTimestamp.putAll(listDirsAfterTimestamp(fileSystem, status.getPath(), watermark));
+                            break;
+                        case SECONDS:
+                        case MILLIS:
+                        case MICROS:
+                        case NANOS:
+                            if (!watermark.isAfter(curDirTimestamp)) {
+                                List<FileStatus> tmpDirsList = dirsSortedByTimestamp.get(curDirTimestamp);
+                                if (tmpDirsList == null) {
+                                    tmpDirsList = new ArrayList<>();
+                                    dirsSortedByTimestamp.put(curDirTimestamp, tmpDirsList);
+                                }
+                                tmpDirsList.add(status);
+                            }
+                            break;
+                        default:
+                            if (!watermark.truncatedTo(curDirLevel).isAfter(curDirTimestamp)) {
+                                dirsSortedByTimestamp.putAll(listDirsAfterTimestamp(fileSystem, status.getPath(), watermark));
+                            }
                     }
-                } else if (format.getNestedFileEnumeration() && this.acceptDir(status, begin, end) && format.acceptFile(status)){
-                    files.putAll(listEligibleFiles(fileSystem, status.getPath(), begin, end));
                 }
             }
-            return files;
+            return dirsSortedByTimestamp;
+        }
+    }
+
+    protected Instant getDirectoryTimestamp(FileStatus directory) {
+        String relativePath = directory.getPath().getPath().split(basePath, 2)[1];
+        String dirs[] = relativePath.split("/");
+        try {
+            if (dirs.length == 1) {
+                DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd").withZone(ZoneOffset.UTC);
+                return LocalDate.parse(relativePath, formatter).atStartOfDay().toInstant(ZoneOffset.UTC);
+            } else {
+                DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd/HHmm").withZone(ZoneOffset.UTC);
+                return ZonedDateTime.parse(relativePath, formatter).toInstant();
+            }
+        } catch (java.time.format.DateTimeParseException ex) {
+//            LOG.info("Directory is not in date-time format: " + relativePath);
+            return IGNORE_THIS_DIRECTORY;
+        }
+    }
+
+    protected ChronoUnit getDirectoryLevel(FileStatus directory) {
+        String relativePath = directory.getPath().getPath().split(basePath, 2)[1];
+        String dirs[] = relativePath.split("/");
+        switch (dirs.length) {
+            case 1: return ChronoUnit.DAYS;
+            case 2: return ChronoUnit.SECONDS;
+            default: return ChronoUnit.FOREVER;
         }
     }
 
@@ -606,7 +688,7 @@ public class ContinuousFileMonitoringFunction<OUT>
         this.checkpointedStateProcessedFilesList.clear();
         this.checkpointedStateProcessedFilesList.add(this.processedFiles);
         this.checkpointedStateDirWatermark.clear();
-        this.checkpointedStateDirWatermark.add(this.dirWatermark);
+        this.checkpointedStateDirWatermark.add(this.dirWatermark.toEpochMilli());
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("{} checkpointed globalModificationTime {}, and {} files.",
