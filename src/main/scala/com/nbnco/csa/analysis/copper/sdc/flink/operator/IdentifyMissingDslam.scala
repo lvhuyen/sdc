@@ -1,6 +1,6 @@
 package com.nbnco.csa.analysis.copper.sdc.flink.operator
 
-import com.nbnco.csa.analysis.copper.sdc.data.{SdcAverage, SdcDataEnrichment, SdcEnrichedInstant}
+import com.nbnco.csa.analysis.copper.sdc.data.{DslamMetadata, SdcAverage, SdcDataEnrichment, SdcEnrichedInstant}
 import org.apache.flink.api.common.functions.AggregateFunction
 import org.apache.flink.api.common.state.{ValueState, ValueStateDescriptor}
 import org.apache.flink.streaming.api.scala.createTypeInformation
@@ -13,9 +13,9 @@ import org.apache.flink.util.Collector
   * Created by Huyen on 24/9/18.
   */
 object IdentifyMissingDslam {
-	class AggIncremental extends AggregateFunction[(Long, String), Long, Long] {
+	class AggIncremental extends AggregateFunction[DslamMetadata, Long, Long] {
 		override def createAccumulator() = 0L
-		override def add(in: (Long, String), acc: Long): Long = scala.math.max(in._1, acc)
+		override def add(in: DslamMetadata, acc: Long): Long = scala.math.max(in.metricsTime, acc)
 		override def merge(acc: Long, acc2: Long): Long = scala.math.max(acc, acc2)
 		override def getResult(acc: Long): Long = acc
 	}

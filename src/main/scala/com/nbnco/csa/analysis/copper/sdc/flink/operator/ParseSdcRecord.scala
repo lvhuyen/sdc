@@ -65,11 +65,11 @@ class ParseSdcRecord[OutType <: SdcRawBase : SdcParser] extends RichFlatMapFunct
 	}
 
 	override def flatMap(in: DslamRaw[String], collector: Collector[OutType]): Unit = {
-		val actual_cols = in.header.split(",")
+		val actual_cols = in.metadata.columns.split(",")
 		val indices = Array.tabulate(actual_cols.length) { i => (actual_cols(i), i) }.toMap
 
 		val (ref, records_cnt, files_cnt) =
-			if (in.header.contains("ifAdminStatus")) {
+			if (in.metadata.isInstant) {
 				(ParseSdcRecord.INSTANT_REF_HEADER_COLUMNS.map(indices(_)),
 						ParseSdcRecord.INSTANT_BAD_RECORDS_COUNT,
 						ParseSdcRecord.INSTANT_BAD_FILES_COUNT)
@@ -91,19 +91,19 @@ class ParseSdcRecord[OutType <: SdcRawBase : SdcParser] extends RichFlatMapFunct
 						}
 						//							val rec = parser(pair._2.split(","))
 						val p = implicitly[SdcParser[OutType]]
-						val rec = p.parse(in.ts, in.dslam, port, pair._2, ref)
+						val rec = p.parse(in.metadata.metricsTime, in.metadata.name, port, pair._2, ref)
 						collector.collect(rec)
 					} catch {
 						case e: Throwable =>
 							records_cnt.inc()
-							ParseSdcRecord.LOG.warn(s"Bad record in file ${in.filename}: ${pair} - ${e.getMessage}")
+							ParseSdcRecord.LOG.warn(s"Bad record in file ${in.metadata.relativePath}: ${pair} - ${e.getMessage}")
 							ParseSdcRecord.LOG.info("Stacktrace: {}", e.getStackTrace)
 					}
 				)
 
 			case _ =>
 				files_cnt.inc()
-				ParseSdcRecord.LOG.warn(s"Bad port format in file ${in.filename}: ${in.data.head._1}")
+				ParseSdcRecord.LOG.warn(s"Bad port format in file ${in.metadata.relativePath}: ${in.data.head._1}")
 		}
 	}
 }

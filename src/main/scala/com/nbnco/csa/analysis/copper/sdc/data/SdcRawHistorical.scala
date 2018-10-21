@@ -26,7 +26,6 @@ case class SdcRawHistorical(ts: Long, dslam: String, port: String,
 			"metrics_timestamp" -> ts
 		) ++ data.toMap
 	}
-
 }
 
 object SdcRawHistorical extends SdcParser[SdcRawHistorical] {

@@ -1,0 +1,52 @@
+{
+	"order": 0,
+	"template": "copper-sdc-dslam-metadata*",
+	"refresh_interval": "30s",
+	"mappings": {
+		"_doc": {
+			"dynamic": false,
+			"_all": {
+				"enabled": false
+			},
+			"_source": {
+				"enabled": true
+			},
+			"properties": {
+				"isInstant": {
+					"type": "boolean",
+					"index": true
+				},
+				"metricsTime": {
+					"type": "date",
+					"format": "epoch_millis",
+					"index": true
+				},
+				"fileTime": {
+					"type": "date",
+					"format": "epoch_millis",
+					"index": true
+				},
+				"processingTime": {
+					"type": "date",
+					"format": "epoch_millis",
+					"index": true
+				},
+				"dslam": {
+					"type": "keyword",
+					"ignore_above": 32,
+					"index": true
+				},
+				"path": {
+					"type": "keyword",
+					"ignore_above": 512,
+					"index": false
+				}
+			}
+
+		}
+	},
+	"aliases": {
+		"copper-sdc-dslam-metadata": {}
+	}
+}
+PUT /_template/copper-sdc-dslam-metadata-template

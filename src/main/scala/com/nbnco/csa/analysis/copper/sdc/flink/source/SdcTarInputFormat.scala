@@ -4,13 +4,14 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 import com.codahale.metrics.SlidingTimeWindowReservoir
-import com.nbnco.csa.analysis.copper.sdc.data.{PORT_PATTERN_UNKNOWN, DslamRaw}
+import com.nbnco.csa.analysis.copper.sdc.data.{DslamMetadata, DslamRaw, PORT_PATTERN_UNKNOWN}
 import com.nbnco.csa.analysis.copper.sdc.utils.InvalidDataException
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.flink.api.common.io.{CheckpointableInputFormat, FileInputFormat}
 import org.apache.flink.core.fs.{FileInputSplit, Path}
 import org.apache.flink.dropwizard.metrics.{DropwizardHistogramWrapper, DropwizardMeterWrapper}
 import org.apache.flink.metrics.{Counter, Histogram, Meter}
+import org.apache.flink.streaming.api.functions.source.TimestampedFileInputSplit
 import org.apache.flink.util.Preconditions
 import org.slf4j.{Logger, LoggerFactory}
 
@@ -20,19 +21,22 @@ import org.slf4j.{Logger, LoggerFactory}
 
 object SdcTarInputFormat {
 	val LOG: Logger = LoggerFactory.getLogger(classOf[SdcTarInputFormat])
+	val FILE_MOD_TIME_UNKNOWN = Long.MinValue
 }
 
 class SdcTarInputFormat(filePath: Path, isComposit: Boolean, metricsPrefix: String) extends FileInputFormat[DslamRaw[String]] (filePath)  with CheckpointableInputFormat[FileInputSplit, Integer]{
 
-	var FILES_COUNT: Counter = _
-	var BAD_FILES_COUNT: Counter = _
-	var BAD_RECORDS_COUNT: Counter = _
-	var DELAY_HISTOGRAM: Histogram = _
-	var DELAY_METER: Meter = _
+	lazy val FILES_COUNT: Counter = getRuntimeContext.getMetricGroup.addGroup("Chronos-SDC").counter(s"$metricsPrefix-Files-Count")
+	lazy val BAD_FILES_COUNT: Counter = getRuntimeContext.getMetricGroup.addGroup("Chronos-SDC").counter(s"$metricsPrefix-Bad-Files-Count")
+	lazy val BAD_RECORDS_COUNT: Counter = getRuntimeContext.getMetricGroup.addGroup("Chronos-SDC").counter(s"$metricsPrefix-Bad-Records-Count")
+	lazy val DELAY_HISTOGRAM: Histogram = getRuntimeContext.getMetricGroup.addGroup("Chronos-SDC")
+			.histogram(s"$metricsPrefix-Files-Delay", new DropwizardHistogramWrapper(
+				new com.codahale.metrics.Histogram(new SlidingTimeWindowReservoir(15, TimeUnit.MINUTES))))
+	lazy val DELAY_METER: Meter = getRuntimeContext.getMetricGroup.addGroup("Chronos-SDC")
+			.meter(s"$metricsPrefix-Files-Delay_Meter", new DropwizardMeterWrapper(new com.codahale.metrics.Meter()))
 
 	this.unsplittable = true
 	this.numSplits = 1
-	//todo close streams
 
 	// --------------------------------------------------------------------------------------------
 	//  Variables for internal parsing.
@@ -45,6 +49,7 @@ class SdcTarInputFormat(filePath: Path, isComposit: Boolean, metricsPrefix: Stri
 	protected var offset = 0
 	protected var isReOpen = false
 	protected var fileName: Path = _
+	protected var fileModTime: Long = _
 
 	private var knownHeaders: Set[String] = Set()
 	private var portPatternId = PORT_PATTERN_UNKNOWN
@@ -53,7 +58,6 @@ class SdcTarInputFormat(filePath: Path, isComposit: Boolean, metricsPrefix: Stri
 	METRICS_DATE_FORMAT.setTimeZone(java.util.TimeZone.getTimeZone("UTC"))
 	private val FILENAME_DATE_FORMAT = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss")
 	FILENAME_DATE_FORMAT.setTimeZone(java.util.TimeZone.getTimeZone("UTC"))
-
 
 	// ------------------------ Abstract member -------------------------------
 	/**
@@ -110,6 +114,7 @@ class SdcTarInputFormat(filePath: Path, isComposit: Boolean, metricsPrefix: Stri
 		val tarStream = new TarArchiveInputStream(this.stream)
 		try {
 			this.portPatternId = PORT_PATTERN_UNKNOWN
+			val processingTime = new java.util.Date().getTime
 
 			val (headers, records) =
 				if (isComposit) readCompositTarFile(tarStream)
@@ -123,22 +128,25 @@ class SdcTarInputFormat(filePath: Path, isComposit: Boolean, metricsPrefix: Stri
 			}
 
 			// cache the data which helps parsing records faster
-			val ts = this.METRICS_DATE_FORMAT.parse(headers("Time stamp")).getTime
+			val metricsTime = this.METRICS_DATE_FORMAT.parse(headers("Time stamp")).getTime
 
 			// Validate data timestamp and filename timestamp
 			// todo: enable this check if needed
-			val fileNameTs = this.FILENAME_DATE_FORMAT.parse(this.fileName.getName.substring(0, 15))
-			//			if (scala.math.abs(fileNameTs.getTime - ts) > Dslam1InstantInputFormat.MAX_TIME_DIFF) {
-			//				throw InvalidDataException(s"Abnormal timestamps: in data $ts vs. in filename $fileNameTs")
-			//			}
+//			val fileNameTs = this.FILENAME_DATE_FORMAT.parse(this.fileName.getName.substring(0, 15))
+//			if (scala.math.abs(fileNameTs.getTime - metricsTime) > SdcTarInputFormat.MAX_TIME_DIFF) {
+//				throw InvalidDataException(s"Abnormal timestamps: in data $metricsTime vs. in filename $fileNameTs")
+//			}
 
 			// Update metrics for time arrival delay
-			this.DELAY_HISTOGRAM.update((fileNameTs.getTime - ts)/1000)
-			this.DELAY_METER.markEvent((fileNameTs.getTime - ts)/1000)
-			//			SdcTarInputFormat.DELAY_HISTOGRAM.update(Instant.now().getEpochSecond - ts/1000)
+			if (this.fileModTime != SdcTarInputFormat.FILE_MOD_TIME_UNKNOWN) {
+				this.DELAY_HISTOGRAM.update((this.fileModTime - metricsTime) / 1000)
+				this.DELAY_METER.markEvent((this.fileModTime - metricsTime) / 1000)
+			}
 
-			if (records.size > 0)
-				DslamRaw(ts, headers("NE Name"), fileName.getPath.split(filePath.getPath)(1), headers("Columns"), records.toSeq)
+			if (records.nonEmpty)
+				DslamRaw(
+					DslamMetadata(isComposit, headers("NE Name"), metricsTime, headers("Columns"), fileName.getPath.split(filePath.getPath)(1), fileModTime, processingTime),
+					records.toSeq)
 			else
 				null
 		} finally {
@@ -180,43 +188,49 @@ class SdcTarInputFormat(filePath: Path, isComposit: Boolean, metricsPrefix: Stri
 	@throws[IOException]
 	override def open(split: FileInputSplit): Unit = {
 		this.fileName = split.getPath
-
-		if (this.FILES_COUNT == null) {
-			this.FILES_COUNT = getRuntimeContext
-					.getMetricGroup.addGroup("Chronos-SDC")
-					.counter(s"$metricsPrefix-Files-Count")
-		}
-		if (this.BAD_FILES_COUNT == null) {
-			this.BAD_FILES_COUNT = getRuntimeContext
-					.getMetricGroup.addGroup("Chronos-SDC")
-					.counter(s"$metricsPrefix-Bad-Files-Count")
-		}
-		if (this.BAD_RECORDS_COUNT == null) {
-			this.BAD_RECORDS_COUNT = getRuntimeContext
-					.getMetricGroup.addGroup("Chronos-SDC")
-					.counter(s"$metricsPrefix-Bad-Records-Count")
-		}
-		if (this.DELAY_HISTOGRAM == null) {
-			this.DELAY_HISTOGRAM = getRuntimeContext
-					.getMetricGroup.addGroup("Chronos-SDC")
-					.histogram(s"$metricsPrefix-Files-Delay", new DropwizardHistogramWrapper(
-						new com.codahale.metrics.Histogram(new SlidingTimeWindowReservoir(120, TimeUnit.MINUTES))))
-		}
-		if (this.DELAY_METER == null) {
-			this.DELAY_METER = getRuntimeContext
-					.getMetricGroup.addGroup("Chronos-SDC")
-					.meter(s"$metricsPrefix-Files-Delay_Meter", new DropwizardMeterWrapper(
-						new com.codahale.metrics.Meter()))
-		}
+//
+//		if (this.FILES_COUNT == null) {
+//			this.FILES_COUNT = getRuntimeContext
+//					.getMetricGroup.addGroup("Chronos-SDC")
+//					.counter(s"$metricsPrefix-Files-Count")
+//		}
+//		if (this.BAD_FILES_COUNT == null) {
+//			this.BAD_FILES_COUNT = getRuntimeContext
+//					.getMetricGroup.addGroup("Chronos-SDC")
+//					.counter(s"$metricsPrefix-Bad-Files-Count")
+//		}
+//		if (this.BAD_RECORDS_COUNT == null) {
+//			this.BAD_RECORDS_COUNT = getRuntimeContext
+//					.getMetricGroup.addGroup("Chronos-SDC")
+//					.counter(s"$metricsPrefix-Bad-Records-Count")
+//		}
+//		if (this.DELAY_HISTOGRAM == null) {
+//			this.DELAY_HISTOGRAM = getRuntimeContext
+//					.getMetricGroup.addGroup("Chronos-SDC")
+//					.histogram(s"$metricsPrefix-Files-Delay", new DropwizardHistogramWrapper(
+//						new com.codahale.metrics.Histogram(new SlidingTimeWindowReservoir(120, TimeUnit.MINUTES))))
+//		}
+//		if (this.DELAY_METER == null) {
+//			this.DELAY_METER = getRuntimeContext
+//					.getMetricGroup.addGroup("Chronos-SDC")
+//					.meter(s"$metricsPrefix-Files-Delay_Meter", new DropwizardMeterWrapper(
+//						new com.codahale.metrics.Meter()))
+//		}
 
 		if (this.splitStart != 0) {
 			// if the first partial record already pushes the stream over
 			// the limit of our split, then no record starts within this split
-			throw new IOException("File should be unsplittable")
+			throw new IOException("File should NOT be splittable")
 		}
 		else {
 			this.FILES_COUNT.inc()
 			this.end = false
+
+			this.fileModTime = split match {
+				case s: TimestampedFileInputSplit => s.getModificationTime
+				case _ => SdcTarInputFormat.FILE_MOD_TIME_UNKNOWN
+			}
+
 			try {
 				super.open(split)
 			} catch {

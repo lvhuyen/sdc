@@ -22,20 +22,7 @@ class SdcFilePathFilter(lookBackPeriod: Long) extends FilePathFilter {
 		filePath == null ||
 				filePath.getName.startsWith(".") ||
 				filePath.getName.startsWith("_") ||
-				filePath.getName.contains(FilePathFilter.HADOOP_COPYING) ||
-						!(filePath.getName.endsWith(".tar.gz") ||
-									filePath.getName.matches("""^\d{8}$""") ||
-									(filePath.getName.matches("""^\d{4}$""") && {
-										try {
-											this.TIME_FORMAT.parse(s"${filePath.getParent.getName} ${filePath.getName}").getTime >
-													new Date().getTime - lookBackPeriod
-										} catch {
-											case _: java.text.ParseException => false
-											case e: Throwable =>
-												SdcFilePathFilter.LOG.warn("Unknown exception happens while checking folder eligibility: {}\n {}", Array(filePath.getPath, e.getStackTrace))
-												false
-										}
-									}))
+				filePath.getName.contains(FilePathFilter.HADOOP_COPYING)
 	}
 }
 

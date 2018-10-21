@@ -31,6 +31,9 @@ object StreamingSdcWithAverageByDslam {
 		val SINK_ELASTIC_COMBINED = "Elastic_Combined"
 		val SINK_ELASTIC_AVERAGE = "Elastic_Average"
 		val SINK_ELASTIC_UNENRICHABLE = "Elastic_Unenrichable"
+		val SINK_ELASTIC_METADATA = "Elastic_Dslam_Metadata"
+		val SINK_ELASTIC_MISSING_I = "Elastic_Dslam_Missing_Instant"
+		val SINK_ELASTIC_MISSING_H = "Elastic_Dslam_Missing_Historical"
 		val SINK_PARQUET_INSTANT = "S3_Parquet_Instant"
 		val SINK_PARQUET_HISTORICAL = "S3_Parquet_Historical"
 		val SINK_PARQUET_UNENRICHABLE_I = "S3_Parquet_Unenrichable_Instant"
@@ -87,7 +90,8 @@ object StreamingSdcWithAverageByDslam {
 		val cfgFlsIncrementalLocation = appConfig.get("sources.fls-incremental.path", "file:///Users/Huyen/Desktop/SDCTest/enrich/")
 
 		val cfgElasticSearchEndpoint = appConfig.get("sink.elasticsearch.endpoint", "vpc-assn-dev-chronos-devops-pmwehr2e7xujnadk53jsx4bjne.ap-southeast-2.es.amazonaws.com")
-		val cfgElasticSearchFlushInterval = appConfig.getInt("sink.elasticsearch.bulk-interval", 60000)
+		val cfgElasticSearchBulkInterval = appConfig.getInt("sink.elasticsearch.bulk-interval-ms", 60000)
+		val cfgElasticSearchBulkSize = appConfig.getInt("sink.elasticsearch.bulk-size-mb", 10)
 		val cfgElasticSearchRetries = appConfig.getInt("sink.elasticsearch.retries-on-failure", 8)
 
 		val cfgElasticSearchCombinedSdcEnabled = appConfig.getBoolean("sink.elasticsearch.sdc.enabled", false)
@@ -107,6 +111,9 @@ object StreamingSdcWithAverageByDslam {
 		val cfgElasticSearchUnenrichableParallelism = appConfig.getInt("sink.elasticsearch.unenrichable.parallelism", 2)
 
 		val cfgElasticSearchStatsEnabled = appConfig.getBoolean("sink.elasticsearch.stats.enabled", false)
+		val cfgElasticSearchStatsDslamMetaIndexName = appConfig.get("sink.elasticsearch.stats.dslam-meta.index-name", "copper-sdc-dslam-metadata")
+		val cfgElasticSearchStatsMissingInstantIndexName = appConfig.get("sink.elasticsearch.stats.missing-instant.index-name", "copper-sdc-dslam-missing-instant")
+		val cfgElasticSearchStatsMissingHistoricalIndexName = appConfig.get("sink.elasticsearch.stats.missing-historical.index-name", "copper-sdc-dslam-missing-historical")
 
 		val cfgRollingAverageWindowInterval = appConfig.getLong("rolling-average.window-interval-minutes", 120)
 		val cfgRollingAverageSlideInterval = appConfig.getLong("rolling-average.slide-interval-minutes", 15)
@@ -233,16 +240,17 @@ object StreamingSdcWithAverageByDslam {
 				.uid(OperatorId.SDC_PARSER_HISTORICAL)
 				.name("Parse SDC Historical")
 
-//		/** Find missing DSLAM */
-//		val streamDslamMetadataInstant: DataStream[(Long, String)] = streamDslamInstant
-//				.map(r => (r.ts, r.dslam))
-//		val streamDslamMissingInstant = streamDslamMetadataInstant
-//				.keyBy(_._2)
-//				.window(EventTimeSessionWindows.withGap(Time.minutes(2 * cfgRollingAverageSlideInterval)))
-//				.allowedLateness(Time.minutes(cfgRollingAverageAllowedLateness))
-//				.aggregate(new IdentifyMissingDslam.AggIncremental, new IdentifyMissingDslam.AggFinal)
-//				.uid(OperatorId.STATS_MISSING_DSLAM_INSTANT)
-//				.name("Identify missing Dslam - Instant")
+		/** Find missing DSLAM */
+		lazy val streamDslamMetadataInstant: DataStream[DslamMetadata] = streamDslamInstant
+				.map(r => r.metadata)
+				.uid("Metadata_Extract_Instant")
+		lazy val streamDslamMissingInstant = streamDslamMetadataInstant
+				.keyBy(_.name)
+				.window(EventTimeSessionWindows.withGap(Time.minutes(2 * cfgRollingAverageSlideInterval)))
+				.allowedLateness(Time.minutes(cfgRollingAverageAllowedLateness))
+				.aggregate(new IdentifyMissingDslam.AggIncremental, new IdentifyMissingDslam.AggFinal)
+				.uid(OperatorId.STATS_MISSING_DSLAM_INSTANT)
+				.name("Identify missing Dslam - Instant")
 //		val streamDslamCountInstant = streamDslamMetadataInstant
 //				.windowAll(TumblingEventTimeWindows.of(Time.minutes(cfgRollingAverageSlideInterval)))
 //				.allowedLateness(Time.minutes(cfgRollingAverageSlideInterval))
@@ -250,15 +258,16 @@ object StreamingSdcWithAverageByDslam {
 //				.uid(OperatorId.STATS_COUNT_INSTANT)
 //				.name("Count Dslam - Instant")
 //
-//		val streamDslamMetadataHistorical: DataStream[(Long, String)] = streamDslamHistorical
-//				.map(r => (r.ts, r.dslam))
-//		val streamDslamMissingHistorical = streamDslamMetadataHistorical
-//				.keyBy(_._2)
-//				.window(EventTimeSessionWindows.withGap(Time.minutes(2 * cfgRollingAverageSlideInterval)))
-//				.allowedLateness(Time.minutes(cfgRollingAverageAllowedLateness))
-//				.aggregate(new IdentifyMissingDslam.AggIncremental, new IdentifyMissingDslam.AggFinal)
-//				.uid(OperatorId.STATS_MISSING_DSLAM_HISTORICAL)
-//				.name("Identify missing Dslam - Historical")
+		lazy val streamDslamMetadataHistorical: DataStream[DslamMetadata] = streamDslamHistorical
+				.map(r => r.metadata)
+				.uid("Metadata_Extract_Historical")
+		lazy val streamDslamMissingHistorical = streamDslamMetadataHistorical
+				.keyBy(_.name)
+				.window(EventTimeSessionWindows.withGap(Time.minutes(2 * cfgRollingAverageSlideInterval)))
+				.allowedLateness(Time.minutes(cfgRollingAverageAllowedLateness))
+				.aggregate(new IdentifyMissingDslam.AggIncremental, new IdentifyMissingDslam.AggFinal)
+				.uid(OperatorId.STATS_MISSING_DSLAM_HISTORICAL)
+				.name("Identify missing Dslam - Historical")
 //		val streamDslamCountHistorical = streamDslamMetadataHistorical
 //				.windowAll(TumblingEventTimeWindows.of(Time.minutes(cfgRollingAverageSlideInterval)))
 //				.allowedLateness(Time.minutes(cfgRollingAverageSlideInterval))
@@ -299,18 +308,16 @@ object StreamingSdcWithAverageByDslam {
 
 		/** calculate rolling average from enrichment */
 			// todo: This section is using an experiment feature to avoid shuffle
-		val streamAverage: DataStream[SdcAverage] =
-			if (cfgElasticSearchAverageEnabled)
-				new DataStreamUtils(streamEnrichedInstant)
-						.reinterpretAsKeyedStream(r => (r.dslam, r.port))
-						.window(SlidingEventTimeWindows.of(Time.minutes(cfgRollingAverageWindowInterval),
-							Time.minutes(cfgRollingAverageSlideInterval)))
-						.allowedLateness(Time.minutes(cfgRollingAverageAllowedLateness))
-						.trigger(new AverageSdcInstant.AggTrigger(Time.minutes(cfgRollingAverageSlideInterval).toMilliseconds))
-						.aggregate(new AverageSdcInstant.AggIncremental, new AverageSdcInstant.AggFinal)
-						.uid(OperatorId.SDC_AVERAGER)
-						.name("Calculate Rolling Average")
-			else null
+		lazy val streamAverage: DataStream[SdcAverage] =
+			new DataStreamUtils(streamEnrichedInstant)
+					.reinterpretAsKeyedStream(r => (r.dslam, r.port))
+					.window(SlidingEventTimeWindows.of(Time.minutes(cfgRollingAverageWindowInterval),
+						Time.minutes(cfgRollingAverageSlideInterval)))
+					.allowedLateness(Time.minutes(cfgRollingAverageAllowedLateness))
+					.trigger(new AverageSdcInstant.AggTrigger(Time.minutes(cfgRollingAverageSlideInterval).toMilliseconds))
+					.aggregate(new AverageSdcInstant.AggIncremental, new AverageSdcInstant.AggFinal)
+					.uid(OperatorId.SDC_AVERAGER)
+					.name("Calculate Rolling Average")
 
 		/** create combined SDC stream */
 //		val combined = streamEnrichedInstant.connect(streamEnrichedHistorical)
@@ -345,7 +352,7 @@ object StreamingSdcWithAverageByDslam {
 //			streamEnriched
 //					.addSink(SdcElasticSearchSink.createSink[SdcEnriched](cfgElasticSearchEndpoint,
 //						cfgElasticSearchCombinedSdcIndexName,
-//						cfgElasticSearchFlushInterval,
+//						cfgElasticSearchBulkInterval,
 //						cfgElasticSearchRetries))
 //					.uid(OperatorId.SINK_ELASTIC_COMBINED)
 //			streamEnrichedInstant.print()
@@ -356,22 +363,24 @@ object StreamingSdcWithAverageByDslam {
 		} else {
 			if (cfgElasticSearchCombinedSdcEnabled)
 				streamEnriched
-					.addSink(SdcElasticSearchSink.createSdcSink[SdcEnrichedBase](
-						cfgElasticSearchEndpoint,
-						cfgElasticSearchCombinedSdcIndexName,
-						cfgElasticSearchFlushInterval,
-						cfgElasticSearchRetries,
-						SdcElasticSearchSink.UPDATABLE_TIME_SERIES_INDEX))
-					.setParallelism(cfgElasticSearchCombinedSdcParallelism)
-					.uid(OperatorId.SINK_ELASTIC_COMBINED)
-					.name("ES - Combined")
+						.addSink(SdcElasticSearchSink.createSdcSink[SdcEnrichedBase](
+							cfgElasticSearchEndpoint,
+							cfgElasticSearchCombinedSdcIndexName,
+							cfgElasticSearchBulkSize,
+							cfgElasticSearchBulkInterval,
+							cfgElasticSearchRetries,
+							SdcElasticSearchSink.UPDATABLE_TIME_SERIES_INDEX))
+						.setParallelism(cfgElasticSearchCombinedSdcParallelism)
+						.uid(OperatorId.SINK_ELASTIC_COMBINED)
+						.name("ES - Combined")
 
 			if (cfgElasticSearchEnrichmentEnabled)
 				streamEnrichmentAgg
 					.addSink(SdcElasticSearchSink.createSdcSink[FlsRecord](
 						cfgElasticSearchEndpoint,
 						cfgElasticSearchEnrichmentIndexName,
-						cfgElasticSearchFlushInterval,
+						-1,
+						cfgElasticSearchBulkInterval,
 						cfgElasticSearchRetries,
 						SdcElasticSearchSink.SINGLE_INSTANCE_INDEX))
 					.setParallelism(cfgElasticSearchEnrichmentParallelism)
@@ -383,7 +392,7 @@ object StreamingSdcWithAverageByDslam {
 //					.addSink(SdcElasticSearchSink.createSdcSink[SdcRawHistorical](
 //						cfgElasticSearchEndpoint,
 //						cfgElasticSearchUnenrichableIndexName,
-//						cfgElasticSearchFlushInterval,
+//						cfgElasticSearchBulkInterval,
 //						cfgElasticSearchRetries,
 //						SdcElasticSearchSink.DAILY_INDEX))
 //					.setParallelism(cfgElasticSearchUnenrichableParallelism)
@@ -395,7 +404,8 @@ object StreamingSdcWithAverageByDslam {
 					.addSink(SdcElasticSearchSink.createSdcSink[SdcAverage](
 						cfgElasticSearchEndpoint,
 						cfgElasticSearchAverageIndexName,
-						cfgElasticSearchFlushInterval,
+						-1,
+						cfgElasticSearchBulkInterval,
 						cfgElasticSearchRetries,
 						SdcElasticSearchSink.TIME_SERIES_INDEX))
 					.setParallelism(cfgElasticSearchAverageParallelism)
@@ -416,45 +426,52 @@ object StreamingSdcWithAverageByDslam {
 						.setParallelism(cfgParquetParallelism)
 						.uid(OperatorId.SINK_PARQUET_HISTORICAL)
 						.name("S3 - Historical")
-
-//				streamNotEnrichableInstant.addSink(
-//					SdcParquetFileSink.buildSink[SdcRawInstant](cfgParquetInstantPath + "_unenrichable", cfgParquetPrefix, cfgParquetSuffixFormat))
-//						.setParallelism(cfgParquetParallelism)
-//						.uid(OperatorId.SINK_PARQUET_UNENRICHABLE_I)
-//						.name("S3 - I - Unenrichable")
-//
-//				streamNotEnrichableHistorical.addSink(
-//					SdcParquetFileSink.buildSink[SdcRawHistorical](cfgParquetHistoricalPath + "_unenrichable", cfgParquetPrefix, cfgParquetSuffixFormat))
-//						.setParallelism(cfgParquetParallelism)
-//						.uid(OperatorId.SINK_PARQUET_UNENRICHABLE_H)
-//						.name("S3 - H - Unenrichable")
 			}
 
-//			if (cfgElasticSearchStatsEnabled) {
-//				streamDslamCountInstant.addSink(SdcElasticSearchSink.createSingleIndexSink[(Long, Int)](
-//					cfgElasticSearchEndpoint, "copper-sdc-count-instant",
-//					r => Map("metrics_timestamp" -> r._1, "measurements_count" -> r._2),
-//					cfgElasticSearchFlushInterval, cfgElasticSearchRetries)
-//				).setParallelism(1).name("ES - DSLAM count - Instant")
-//
-//				streamDslamCountHistorical.addSink(SdcElasticSearchSink.createSingleIndexSink[(Long, Int)](
-//					cfgElasticSearchEndpoint, "copper-sdc-count-historical",
-//					r => Map("metrics_timestamp" -> r._1, "measurements_count" -> r._2),
-//					cfgElasticSearchFlushInterval, cfgElasticSearchRetries)
-//				).setParallelism(1).name("ES - DSLAM count - Historical")
-//
-//				streamDslamMissingInstant.addSink(SdcElasticSearchSink.createSingleIndexSink[(Long, String)](
-//					cfgElasticSearchEndpoint, "copper-sdc-missing-instant",
-//					r => Map("metrics_timestamp" -> (r._1 + cfgRollingAverageSlideInterval * 60L * 1000L), "dslam" -> r._2),
-//					cfgElasticSearchFlushInterval, cfgElasticSearchRetries)
-//				).setParallelism(1).name("ES - Missing DSLAM - Instant")
-//
-//				streamDslamMissingHistorical.addSink(SdcElasticSearchSink.createSingleIndexSink[(Long, String)](
-//					cfgElasticSearchEndpoint, "copper-sdc-missing-historical",
-//					r => Map("metrics_timestamp" -> (r._1 + cfgRollingAverageSlideInterval * 60L * 1000L), "dslam" -> r._2),
-//					cfgElasticSearchFlushInterval, cfgElasticSearchRetries)
-//				).setParallelism(1).name("ES - Missing DSLAM - Historical")
-//			}
+			if (cfgElasticSearchStatsEnabled) {
+				streamDslamMetadataInstant.union(streamDslamMetadataHistorical)
+						.addSink(SdcElasticSearchSink.createSingleIndexSink[DslamMetadata](
+							cfgElasticSearchEndpoint, cfgElasticSearchStatsDslamMetaIndexName,
+							DslamMetadata.toMap,
+							r => s"${if (r.isInstant) "I" else "H"}_${r.name}_${r.metricsTime}",
+							cfgElasticSearchBulkInterval, cfgElasticSearchRetries))
+						.setParallelism(1)
+						.uid(OperatorId.SINK_ELASTIC_METADATA)
+						.name("ES - DSLAM Info")
+
+				streamDslamMissingInstant
+						.addSink(SdcElasticSearchSink.createSingleIndexSink[(Long, String)](
+							cfgElasticSearchEndpoint, cfgElasticSearchStatsMissingInstantIndexName,
+							r => Map("metrics_timestamp" -> (r._1 + cfgRollingAverageSlideInterval * 60L * 1000L), "dslam" -> r._2),
+							_._2,
+							-1, cfgElasticSearchRetries))
+						.setParallelism(1)
+						.uid(OperatorId.SINK_ELASTIC_MISSING_I)
+						.name("ES - Missing DSLAM - Instant")
+
+				streamDslamMissingHistorical
+						.addSink(SdcElasticSearchSink.createSingleIndexSink[(Long, String)](
+							cfgElasticSearchEndpoint, cfgElasticSearchStatsMissingHistoricalIndexName,
+							r => Map("metrics_timestamp" -> (r._1 + cfgRollingAverageSlideInterval * 60L * 1000L), "dslam" -> r._2),
+							_._2,
+							-1, cfgElasticSearchRetries))
+						.setParallelism(1)
+						.uid(OperatorId.SINK_ELASTIC_MISSING_H)
+						.name("ES - Missing DSLAM - Historical")
+
+				//				streamDslamCountInstant.addSink(SdcElasticSearchSink.createSingleIndexSink[(Long, Int)](
+				//					cfgElasticSearchEndpoint, "copper-sdc-count-instant",
+				//					r => Map("metrics_timestamp" -> r._1, "measurements_count" -> r._2),
+				//					cfgElasticSearchBulkInterval, cfgElasticSearchRetries)
+				//				).setParallelism(1).name("ES - DSLAM count - Instant")
+				//
+				//				streamDslamCountHistorical.addSink(SdcElasticSearchSink.createSingleIndexSink[(Long, Int)](
+				//					cfgElasticSearchEndpoint, "copper-sdc-count-historical",
+				//					r => Map("metrics_timestamp" -> r._1, "measurements_count" -> r._2),
+				//					cfgElasticSearchBulkInterval, cfgElasticSearchRetries)
+				//				).setParallelism(1).name("ES - DSLAM count - Historical")
+				//
+			}
 
 			//			averageInstant.addSink(new SdcKinesisProducer[SdcOut](kinesis_stream))
 			//			val test2 = averageInstant.filter(s => s.measurements_count == 1)

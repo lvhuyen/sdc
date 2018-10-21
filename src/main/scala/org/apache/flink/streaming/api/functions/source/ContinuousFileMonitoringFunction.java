@@ -27,7 +27,11 @@ import org.apache.flink.api.common.typeutils.base.LongSerializer;
 import org.apache.flink.api.common.typeutils.base.MapSerializer;
 import org.apache.flink.api.common.typeutils.base.StringSerializer;
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.core.fs.*;
+import org.apache.flink.core.fs.BlockLocation;
+import org.apache.flink.core.fs.FileInputSplit;
+import org.apache.flink.core.fs.FileStatus;
+import org.apache.flink.core.fs.FileSystem;
+import org.apache.flink.core.fs.Path;
 import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
 import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
@@ -44,7 +48,15 @@ import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
-import java.util.*;
+import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
 
 /**
  * This is the single (non-parallel) monitoring task which takes a {@link FileInputFormat}
@@ -116,16 +128,13 @@ public class ContinuousFileMonitoringFunction<OUT>
 
     /** The current directory watermark, used to skip reading old directories */
 
-    private volatile Instant dirWatermark = Instant.ofEpochMilli(Long.MIN_VALUE);
-//    private volatile long dirWatermark = 1505433600000L;
+    public static final Instant IGNORE_THIS_DIRECTORY = Instant.ofEpochMilli(Long.MIN_VALUE);;
+    public static final Instant MIN_DIR_TIMESTAMP = Instant.ofEpochMilli(Long.MIN_VALUE + 1000);;
+    private volatile Instant dirWatermark = MIN_DIR_TIMESTAMP;
 
     /** Max amount of time between latest directory and the directory that will be eligible to scan */
     private final long dirScanChunkSizeInSeconds;
     private final long dirRescanIntervalInSeconds;
-    private final java.text.SimpleDateFormat DIR_TIME_FORMAT;
-    private final java.text.SimpleDateFormat DIR_DATE_FORMAT;
-    public static final Instant IGNORE_THIS_DIRECTORY = Instant.MIN;
-    public static final Instant ACCEPT_THIS_DIRECTORY = Instant.MAX;
 
     /** Max amount of time between latest directory and the directory that will be eligible to scan */
 
@@ -190,10 +199,6 @@ public class ContinuousFileMonitoringFunction<OUT>
         this.format = Preconditions.checkNotNull(format, "Unspecified File Input Format.");
         this.path = Preconditions.checkNotNull(format.getFilePaths()[0].toString(), "Unspecified Path.");
         this.basePath = new Path(path).getPath() + "/";
-        this.DIR_TIME_FORMAT = new java.text.SimpleDateFormat("yyyyMMdd/HHmm");
-        this.DIR_TIME_FORMAT.setTimeZone(TimeZone.getTimeZone("UTC"));
-        this.DIR_DATE_FORMAT = new java.text.SimpleDateFormat("yyyyMMdd");
-        this.DIR_DATE_FORMAT.setTimeZone(TimeZone.getTimeZone("UTC"));
 
         this.interval = interval;
         this.watchType = watchType;
@@ -205,7 +210,7 @@ public class ContinuousFileMonitoringFunction<OUT>
 
         if (this.readConsistencyOffset > 10) {
             this.dirScanChunkSizeInSeconds = 900L;
-            this.dirRescanIntervalInSeconds = 4 * dirScanChunkSizeInSeconds;
+            this.dirRescanIntervalInSeconds = 8 * dirScanChunkSizeInSeconds;
         } else {
             this.dirScanChunkSizeInSeconds = 0L;
             this.dirRescanIntervalInSeconds = Integer.MAX_VALUE;
@@ -378,7 +383,6 @@ public class ContinuousFileMonitoringFunction<OUT>
 
     private void monitorDirAndForwardSplits(FileSystem fs,
                                             SourceContext<TimestampedFileInputSplit> context) throws IOException {
-
         assert (Thread.holdsLock(checkpointLock));
 
         Map<Path, FileStatus> eligibleFiles;
@@ -388,8 +392,8 @@ public class ContinuousFileMonitoringFunction<OUT>
                     dirWatermark.minusSeconds(dirRescanIntervalInSeconds));
 
             if (availableDirs.size() > 0) {
-                Instant curWindowBegin = availableDirs.keySet().iterator().next();
-                Instant curWindowEnd = curWindowBegin.plusSeconds(dirScanChunkSizeInSeconds);
+                Instant lastestTimestamp = dirWatermark.minusSeconds(dirRescanIntervalInSeconds);
+                Instant curWindowEnd = lastestTimestamp.plusSeconds(dirScanChunkSizeInSeconds);
 
                 for (Map.Entry<Instant, List<FileStatus>> directories : availableDirs.entrySet()) {
                     Instant curDirTimestamp = directories.getKey();
@@ -397,10 +401,10 @@ public class ContinuousFileMonitoringFunction<OUT>
                         if (eligibleFiles.size() > 0) {
                             break;
                         } else {
-                            curWindowBegin = curWindowEnd;
-                            curWindowEnd = curWindowBegin.plusSeconds(dirScanChunkSizeInSeconds);
+                            curWindowEnd = curDirTimestamp.plusSeconds(dirScanChunkSizeInSeconds);
                         }
                     }
+                    lastestTimestamp = curDirTimestamp;
                     for (FileStatus directory : directories.getValue()) {
                         if (LOG.isDebugEnabled()) {
                             LOG.debug("Listing files in dir: " + directory);
@@ -409,11 +413,12 @@ public class ContinuousFileMonitoringFunction<OUT>
                     }
                 }
 
-                if (eligibleFiles.size() > 0 && curWindowBegin.isAfter(dirWatermark)) {
-                    LOG.warn("{} has dir watermark being advanced from {} to {}", path, dirWatermark, curWindowBegin);
-                    dirWatermark = curWindowBegin;
+                if (eligibleFiles.size() > 0 && lastestTimestamp.isAfter(dirWatermark)) {
+                    LOG.warn("{} has dir watermark being advanced from {} to {}", path, dirWatermark, lastestTimestamp);
+                    dirWatermark = lastestTimestamp;
                 }
             }
+
         } else {
             eligibleFiles = listEligibleFiles(fs, new Path(path));
         }
@@ -474,14 +479,9 @@ public class ContinuousFileMonitoringFunction<OUT>
                     }
 
                     Long modTime = file.getModificationTime();
-                    List<TimestampedFileInputSplit> splitsToForward = splitsByModTime.get(modTime);
-                    if (splitsToForward == null) {
-                        splitsToForward = new ArrayList<>();
-                        splitsByModTime.put(modTime, splitsToForward);
-                    }
-                    splitsToForward.add(new TimestampedFileInputSplit(
-                            modTime, splitNum++, file.getPath(),
-                            0, -1, hosts.toArray(new String[hosts.size()])));
+                    splitsByModTime.computeIfAbsent(modTime, k -> new ArrayList<>())
+                            .add(new TimestampedFileInputSplit(modTime, splitNum++, file.getPath(),
+                                    0, -1, hosts.toArray(new String[hosts.size()])));
                 }
             }
         } else {
@@ -569,7 +569,11 @@ public class ContinuousFileMonitoringFunction<OUT>
                     Instant curDirTimestamp = getDirectoryTimestamp(status);
                     switch (curDirLevel) {
                         case FOREVER:
-                            dirsSortedByTimestamp.putAll(listDirsAfterTimestamp(fileSystem, status.getPath(), watermark));
+                            listDirsAfterTimestamp(fileSystem, status.getPath(), watermark).forEach((k, v) ->
+                                    dirsSortedByTimestamp.merge(k, v, (v1, v2) -> {
+                                        v1.addAll(v2);
+                                        return v1;
+                                    }));
                             break;
                         case SECONDS:
                         case MILLIS:
@@ -586,7 +590,11 @@ public class ContinuousFileMonitoringFunction<OUT>
                             break;
                         default:
                             if (!watermark.truncatedTo(curDirLevel).isAfter(curDirTimestamp)) {
-                                dirsSortedByTimestamp.putAll(listDirsAfterTimestamp(fileSystem, status.getPath(), watermark));
+                                listDirsAfterTimestamp(fileSystem, status.getPath(), watermark).forEach((k, v) ->
+                                        dirsSortedByTimestamp.merge(k, v, (v1, v2) -> {
+                                            v1.addAll(v2);
+                                            return v1;
+                                        }));
                             }
                     }
                 }
@@ -607,7 +615,6 @@ public class ContinuousFileMonitoringFunction<OUT>
                 return ZonedDateTime.parse(relativePath, formatter).toInstant();
             }
         } catch (java.time.format.DateTimeParseException ex) {
-//            LOG.info("Directory is not in date-time format: " + relativePath);
             return IGNORE_THIS_DIRECTORY;
         }
     }
