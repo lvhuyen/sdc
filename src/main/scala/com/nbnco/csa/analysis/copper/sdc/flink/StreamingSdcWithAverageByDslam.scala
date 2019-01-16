@@ -169,7 +169,6 @@ object StreamingSdcWithAverageByDslam {
         		.flatMap(new MergeAmsFls)
 				.uid(OperatorId.AMS_FLS_MERGER)
 	        	.name("Merge AMS & FLS parquet")
-
 		/** Read fls initial and incremental stream */
 //		val ifFlsInitialCsv = new TextInputFormat(
 //			new org.apache.flink.core.fs.Path(cfgFlsInitialLocation))
@@ -443,8 +442,8 @@ object StreamingSdcWithAverageByDslam {
 						.addSink(SdcElasticSearchSink.createSingleIndexSink[(Long, String)](
 							cfgElasticSearchEndpoint, cfgElasticSearchStatsMissingInstantIndexName,
 							r => Map("metrics_timestamp" -> (r._1 + cfgRollingAverageSlideInterval * 60L * 1000L), "dslam" -> r._2),
-							_._2,
-							-1, cfgElasticSearchRetries))
+							r => s"I_${r._2}_${r._1}",
+							cfgElasticSearchBulkInterval, cfgElasticSearchRetries))
 						.setParallelism(1)
 						.uid(OperatorId.SINK_ELASTIC_MISSING_I)
 						.name("ES - Missing DSLAM - Instant")
@@ -453,8 +452,8 @@ object StreamingSdcWithAverageByDslam {
 						.addSink(SdcElasticSearchSink.createSingleIndexSink[(Long, String)](
 							cfgElasticSearchEndpoint, cfgElasticSearchStatsMissingHistoricalIndexName,
 							r => Map("metrics_timestamp" -> (r._1 + cfgRollingAverageSlideInterval * 60L * 1000L), "dslam" -> r._2),
-							_._2,
-							-1, cfgElasticSearchRetries))
+							r => s"H_${r._2}_${r._1}",
+							cfgElasticSearchBulkInterval, cfgElasticSearchRetries))
 						.setParallelism(1)
 						.uid(OperatorId.SINK_ELASTIC_MISSING_H)
 						.name("ES - Missing DSLAM - Historical")
