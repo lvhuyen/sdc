@@ -1,0 +1,13 @@
+<component name="libraryTable">
+  <library name="Maven: org.apache.flink:flink-optimizer_2.11:1.7-HUYEN">
+    <CLASSES>
+      <root url="jar://$MAVEN_REPOSITORY$/org/apache/flink/flink-optimizer_2.11/1.7-HUYEN/flink-optimizer_2.11-1.7-HUYEN.jar!/" />
+    </CLASSES>
+    <JAVADOC>
+      <root url="jar://$MAVEN_REPOSITORY$/org/apache/flink/flink-optimizer_2.11/1.7-HUYEN/flink-optimizer_2.11-1.7-HUYEN-javadoc.jar!/" />
+    </JAVADOC>
+    <SOURCES>
+      <root url="jar://$MAVEN_REPOSITORY$/org/apache/flink/flink-optimizer_2.11/1.7-HUYEN/flink-optimizer_2.11-1.7-HUYEN-sources.jar!/" />
+    </SOURCES>
+  </library>
+</component>
