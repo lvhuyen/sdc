@@ -56,7 +56,8 @@ case class SdcEnrichedHistorical(ts: Long,
     override def put(i: Int, o: scala.Any): Unit = {
         throw new Exception("This class is for output only")
 //        SdcEnrichedHistorical.apply()
-    }}
+    }
+}
 
 object SdcEnrichedHistorical {
     def apply(raw: SdcRawHistorical, enrich: SdcDataEnrichment): SdcEnrichedHistorical = {

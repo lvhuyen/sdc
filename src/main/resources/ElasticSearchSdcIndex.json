@@ -38,7 +38,7 @@ PUT /_template/copper-sdc-combined-staging-template
 					"ignore_above": 32,
 					"index": true
 				},
-				"cpi": {
+				"cpid": {
 					"type": "keyword",
 					"ignore_above": 32,
 					"index": true
@@ -93,7 +93,7 @@ PUT /_template/copper-sdc-combined-staging-template
 					"index": false
 				},
 				"metrics_timestamp": {
-					"type": "long",
+					"type": "date",
 					"index": true
 				},
 				"enrich_timestamp": {
@@ -303,7 +303,7 @@ PUT /_template/copper-fls-staging-template
 					"ignore_above": 32,
 					"index": true
 				},
-				"cpi": {
+				"cpid": {
 					"type": "keyword",
 					"ignore_above": 32,
 					"index": true
@@ -367,7 +367,7 @@ PUT /_template/copper-sdc-average-staging-template
 					"ignore_above": 32,
 					"index": true
 				},
-				"cpi": {
+				"cpid": {
 					"type": "keyword",
 					"ignore_above": 32,
 					"index": true

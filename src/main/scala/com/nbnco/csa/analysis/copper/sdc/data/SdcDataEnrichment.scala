@@ -8,7 +8,7 @@ case class SdcDataEnrichment(tsEnrich: Long, avcId: String, cpi: String) {
 		Map (
 			"enrich_timestamp" -> tsEnrich,
 			"avcid" -> avcId,
-			"cpi" -> cpi
+			"cpid" -> cpi
 		)
 	}
 }

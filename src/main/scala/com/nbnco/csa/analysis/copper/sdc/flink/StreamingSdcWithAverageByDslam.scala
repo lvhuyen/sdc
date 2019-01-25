@@ -1,7 +1,10 @@
 package com.nbnco.csa.analysis.copper.sdc.flink
 
+import java.time.Instant
+
 import com.nbnco.csa.analysis.copper.sdc.data._
 import com.nbnco.csa.analysis.copper.sdc.flink.operator._
+import com.nbnco.csa.analysis.copper.sdc.flink.sink.SdcElasticSearchSink.DAILY_INDEX_SUFFIX_FORMATTER
 import com.nbnco.csa.analysis.copper.sdc.flink.sink.{SdcElasticSearchSink, SdcParquetFileSink}
 import com.nbnco.csa.analysis.copper.sdc.flink.source._
 import org.apache.flink.api.common.io.FilePathFilter
@@ -36,6 +39,7 @@ object StreamingSdcWithAverageByDslam {
 		val SINK_ELASTIC_MISSING_H = "Elastic_Dslam_Missing_Historical"
 		val SINK_PARQUET_INSTANT = "S3_Parquet_Instant"
 		val SINK_PARQUET_HISTORICAL = "S3_Parquet_Historical"
+		val SINK_PARQUET_METADATA = "S3_Parquet_Metadata"
 		val SINK_PARQUET_UNENRICHABLE_I = "S3_Parquet_Unenrichable_Instant"
 		val SINK_PARQUET_UNENRICHABLE_H = "S3_Parquet_Unenrichable_Historical"
 		val SDC_ENRICHER = "Sdc_Enricher"
@@ -50,11 +54,171 @@ object StreamingSdcWithAverageByDslam {
 		val SDC_PARSER_INSTANT = "Sdc_Parser_Instant"
 	}
 
+	def initEnvironment(appConfig: ParameterTool): StreamExecutionEnvironment = {
+		val cfgParallelism = appConfig.getInt("parallelism", 32)
+		val cfgTaskTimeoutInterval = appConfig.getLong("task-timeout-interval", 30000)
+		val cfgCheckpointEnabled = appConfig.getBoolean("checkpoint.enabled", true)
+		val cfgCheckpointLocation = appConfig.get("checkpoint.path", "s3://assn-csa-prod-telemetry-data-lake/TestData/Spike/Huyen/SDC/ckpoint/")
+		val cfgCheckpointInterval = appConfig.getLong("checkpoint.interval", 800000L)
+		val cfgCheckpointTimeout = appConfig.getLong("checkpoint.timeout", 600000L)
+		val cfgCheckpointMinPause = appConfig.getLong("checkpoint.minimum-pause", 600000L)
+
+		val streamEnv =
+			if (cfgCheckpointEnabled) StreamExecutionEnvironment.getExecutionEnvironment
+				.setStateBackend(new RocksDBStateBackend(cfgCheckpointLocation, true))
+				.enableCheckpointing(cfgCheckpointInterval)
+			else StreamExecutionEnvironment.getExecutionEnvironment
+		if (cfgCheckpointEnabled) {
+			streamEnv.getCheckpointConfig.setMinPauseBetweenCheckpoints(cfgCheckpointMinPause)
+			streamEnv.getCheckpointConfig.setCheckpointTimeout(cfgCheckpointTimeout)
+			streamEnv.getCheckpointConfig.setFailOnCheckpointingErrors(false)
+			streamEnv.getCheckpointConfig.enableExternalizedCheckpoints(ExternalizedCheckpointCleanup.DELETE_ON_CANCELLATION)
+			streamEnv.getCheckpointConfig.setCheckpointingMode(CheckpointingMode.EXACTLY_ONCE)
+		}
+		streamEnv.getConfig.setTaskCancellationInterval(cfgTaskTimeoutInterval)
+		streamEnv.setParallelism(cfgParallelism)
+		streamEnv.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
+
+		return streamEnv
+	}
+
+	def readEnrichmentData(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): DataStream[FlsRecord] = {
+		val cfgFlsParquetLocation = appConfig.get("sources.fls-parquet.path", "s3://thor-pr-data-warehouse-common/common.ipact.fls.fls7_avc_inv/version=0/")
+		val cfgFlsParquetScanInterval = appConfig.getLong("sources.fls-parquet.scan-interval", 60000L)
+		val cfgFlsParquetScanConsistency = appConfig.getLong("sources.fls-parquet.scan-consistency-offset", 0L)
+		val cfgFlsParquetIgnore = appConfig.getLong("sources.fls-parquet.ignore-files-older-than-minutes", 10000) * 60 * 1000
+
+		val cfgAmsParquetLocation = appConfig.get("sources.ams-parquet.path", "s3://thor-pr-data-warehouse-fttx/fttx.ams.inventory.xdsl_port/version=0/")
+		val cfgAmsParquetScanInterval = appConfig.getLong("sources.ams-parquet.scan-interval", 60000L)
+		val cfgAmsParquetScanConsistency = appConfig.getLong("sources.ams-parquet.scan-consistency-offset", 0L)
+		val cfgAmsParquetIgnore = appConfig.getLong("sources.ams-parquet.ignore-files-older-than-minutes", 10000) * 60 * 1000
+
+		val fifFlsParquet = new FlsRawFileInputFormat(new Path(cfgFlsParquetLocation))
+		fifFlsParquet.setFilesFilter(new EnrichmentFilePathFilter(cfgFlsParquetIgnore))
+		fifFlsParquet.setNestedFileEnumeration(true)
+		val streamFlsParquet: DataStream[FlsRaw] = streamEnv
+			.readFile(fifFlsParquet, cfgFlsParquetLocation,
+				FileProcessingMode.PROCESS_CONTINUOUSLY, cfgFlsParquetScanInterval, cfgFlsParquetScanConsistency)
+			.uid(OperatorId.SOURCE_FLS_RAW)
+			.name("FLS parquet")
+
+		val fifAmsParquet = new AmsRawFileInputFormat(new Path(cfgAmsParquetLocation))
+		fifAmsParquet.setFilesFilter(new EnrichmentFilePathFilter(cfgAmsParquetIgnore))
+		fifAmsParquet.setNestedFileEnumeration(true)
+		val streamAmsParquet: DataStream[AmsRaw] = streamEnv
+			.readFile(fifAmsParquet, cfgAmsParquetLocation,
+				FileProcessingMode.PROCESS_CONTINUOUSLY, cfgAmsParquetScanInterval, cfgAmsParquetScanConsistency)
+			.uid(OperatorId.SOURCE_AMS_RAW)
+			.name("AMS parquet")
+
+		val streamEnrichment = streamAmsParquet.connect(streamFlsParquet)
+			.keyBy(_.customer_id, _.uni_prid)
+			.flatMap(new MergeAmsFls)
+			.uid(OperatorId.AMS_FLS_MERGER)
+			.name("Merge AMS & FLS parquet")
+
+		return streamEnrichment
+	}
+
+	def readEnrichmentStream(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): DataStream[FlsRecord] = {
+		val cfgFlsInitialLocation = appConfig.get("sources.fls-initial.path", "file:///Users/Huyen/Desktop/SDC/enrich/")
+		val cfgFlsIncrementalLocation = appConfig.get("sources.fls-incremental.path", "file:///Users/Huyen/Desktop/SDCTest/enrich/")
+
+		val ifFlsInitialCsv = new TextInputFormat(
+			new org.apache.flink.core.fs.Path(cfgFlsInitialLocation))
+		ifFlsInitialCsv.setFilesFilter(FilePathFilter.createDefaultFilter())
+		ifFlsInitialCsv.setNestedFileEnumeration(true)
+		val streamFlsInitial: DataStream[String] =
+			streamEnv.readFile(ifFlsInitialCsv, cfgFlsIncrementalLocation,
+				FileProcessingMode.PROCESS_CONTINUOUSLY, 5000L)
+				.uid(OperatorId.SOURCE_FLS_INITIAL)
+				.name("Initial FLS stream")
+
+		val ifFlsIncrementalCsv = new TextInputFormat(
+			new org.apache.flink.core.fs.Path(cfgFlsIncrementalLocation))
+		ifFlsIncrementalCsv.setFilesFilter(FilePathFilter.createDefaultFilter())
+		ifFlsIncrementalCsv.setNestedFileEnumeration(true)
+		val streamFlsIncremental: DataStream[String] =
+			streamEnv.readFile(ifFlsIncrementalCsv, cfgFlsInitialLocation,
+				FileProcessingMode.PROCESS_CONTINUOUSLY, 5000L)
+				.uid(OperatorId.SOURCE_FLS_INCREMENTAL)
+				.name("Incremental FLS stream")
+
+		val flsRaw = streamFlsIncremental.union(streamFlsInitial)
+			.flatMap(line => {
+				val v = line.split(",")
+				List(FlsRecord(v(4).toLong,v(1),v(2),v(3),v(4)))
+			})
+
+		return flsRaw
+	}
+
+	def readHistoricalData(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): (DataStream[DslamRaw[String]], DataStream[SdcRawHistorical]) = {
+		val cfgSdcHistoricalLocation = appConfig.get("sources.sdc-historical.path", "s3://thor-pr-data-raw-fttx/fttx.sdc.copper.history.combined/")
+		val cfgSdcHistoricalScanInterval = appConfig.getLong("sources.sdc-historical.scan-interval", 10000L)
+		val cfgSdcHistoricalScanConsistency = appConfig.getLong("sources.sdc-historical.scan-consistency-offset", 2000L)
+		val cfgSdcHistoricalIgnore = appConfig.getLong("sources.sdc-historical.ignore-files-older-than-minutes", 10000) * 60 * 1000
+
+		implicit val hParser: SdcParser[SdcRawHistorical] = SdcRawHistorical
+
+		val pathSdcHistorical = new org.apache.flink.core.fs.Path(cfgSdcHistoricalLocation)
+		val fifSdcHistorical = new SdcTarInputFormat(pathSdcHistorical, false, "Historical")
+		fifSdcHistorical.setFilesFilter(new SdcFilePathFilter(cfgSdcHistoricalIgnore))
+		fifSdcHistorical.setNestedFileEnumeration(true)
+		val streamDslamHistorical = streamEnv
+			.readFile(fifSdcHistorical,
+				cfgSdcHistoricalLocation,
+				FileProcessingMode.PROCESS_CONTINUOUSLY,
+				cfgSdcHistoricalScanInterval, cfgSdcHistoricalScanConsistency)
+			.uid(OperatorId.SOURCE_SDC_HISTORICAL)
+			.assignTimestampsAndWatermarks(new DslamRecordTimeAssigner[String])
+			.name("Read SDC Historical")
+		val streamSdcRawHistorical: DataStream[SdcRawHistorical] = streamDslamHistorical
+			.flatMap(new ParseSdcRecord[SdcRawHistorical]())
+			.uid(OperatorId.SDC_PARSER_HISTORICAL)
+			.name("Parse SDC Historical")
+
+		return (streamDslamHistorical, streamSdcRawHistorical)
+	}
+
+	def readInstantData(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): (DataStream[DslamRaw[String]], DataStream[SdcRawInstant]) = {
+		val cfgSdcInstantLocation = appConfig.get("sources.sdc-instant.path", "s3://thor-pr-data-raw-fttx/fttx.sdc.copper.history.combined/instant")
+		val cfgSdcInstantScanInterval = appConfig.getLong("sources.sdc-instant.scan-interval", 10000L)
+		val cfgSdcInstantScanConsistency = appConfig.getLong("sources.sdc-instant.scan-consistency-offset", 2000L)
+		val cfgSdcInstantIgnore = appConfig.getLong("sources.sdc-instant.ignore-files-older-than-minutes", 10000) * 60 * 1000
+
+		implicit val iParser: SdcParser[SdcRawInstant] = SdcRawInstant
+
+		val pathSdcInstant = new org.apache.flink.core.fs.Path(cfgSdcInstantLocation)
+		val fifSdcInstant = new SdcTarInputFormat(pathSdcInstant, true, "Instant")
+		fifSdcInstant.setFilesFilter(new SdcFilePathFilter(cfgSdcInstantIgnore))
+		fifSdcInstant.setNestedFileEnumeration(true)
+		val streamDslamInstant = streamEnv
+			.readFile(fifSdcInstant,
+				cfgSdcInstantLocation,
+				FileProcessingMode.PROCESS_CONTINUOUSLY,
+				cfgSdcInstantScanInterval, cfgSdcInstantScanConsistency)
+			.uid(OperatorId.SOURCE_SDC_INSTANT)
+			.assignTimestampsAndWatermarks(new DslamRecordTimeAssigner[String])
+			.name("Read SDC Instant")
+		val streamSdcRawInstant: DataStream[SdcRawInstant] = streamDslamInstant
+			.flatMap(new ParseSdcRecord[SdcRawInstant])
+			.uid(OperatorId.SDC_PARSER_INSTANT)
+			.name("Parse SDC Instant")
+			.filter(r => !r.data.if_admin_status.equalsIgnoreCase("down"))
+			.uid(OperatorId.SDC_PARSER_INSTANT + "_1")
+
+		return (streamDslamInstant, streamSdcRawInstant)
+	}
+
 	def main(args: Array[String]) {
 
 		/** Read configuration */
 		val configFile = ParameterTool.fromArgs(args).get("configFile", "dev.properties")
-		val appConfig = ParameterTool.fromPropertiesFile(configFile)
+
+		import java.net.URI
+		val fs = org.apache.flink.core.fs.FileSystem.get(URI.create(configFile))
+		val appConfig = ParameterTool.fromPropertiesFile(fs.open(new Path(configFile)))
 		val debug = appConfig.getBoolean("debug", false)
 
 		val cfgParallelism = appConfig.getInt("parallelism", 32)
@@ -75,19 +239,6 @@ object StreamingSdcWithAverageByDslam {
 		val cfgSdcInstantScanInterval = appConfig.getLong("sources.sdc-instant.scan-interval", 10000L)
 		val cfgSdcInstantScanConsistency = appConfig.getLong("sources.sdc-instant.scan-consistency-offset", 2000L)
 		val cfgSdcInstantIgnore = appConfig.getLong("sources.sdc-instant.ignore-files-older-than-minutes", 10000) * 60 * 1000
-
-		val cfgFlsParquetLocation = appConfig.get("sources.fls-parquet.path", "s3://thor-pr-data-warehouse-common/common.ipact.fls.fls7_avc_inv/version=0/")
-		val cfgFlsParquetScanInterval = appConfig.getLong("sources.fls-parquet.scan-interval", 60000L)
-		val cfgFlsParquetScanConsistency = appConfig.getLong("sources.fls-parquet.scan-consistency-offset", 0L)
-		val cfgFlsParquetIgnore = appConfig.getLong("sources.fls-parquet.ignore-files-older-than-minutes", 10000) * 60 * 1000
-
-		val cfgAmsParquetLocation = appConfig.get("sources.ams-parquet.path", "s3://thor-pr-data-warehouse-fttx/fttx.ams.inventory.xdsl_port/version=0/")
-		val cfgAmsParquetScanInterval = appConfig.getLong("sources.ams-parquet.scan-interval", 60000L)
-		val cfgAmsParquetScanConsistency = appConfig.getLong("sources.ams-parquet.scan-consistency-offset", 0L)
-		val cfgAmsParquetIgnore = appConfig.getLong("sources.ams-parquet.ignore-files-older-than-minutes", 10000) * 60 * 1000
-
-		val cfgFlsInitialLocation = appConfig.get("sources.fls-initial.path", "file:///Users/Huyen/Desktop/SDC/enrich/")
-		val cfgFlsIncrementalLocation = appConfig.get("sources.fls-incremental.path", "file:///Users/Huyen/Desktop/SDCTest/enrich/")
 
 		val cfgElasticSearchEndpoint = appConfig.get("sink.elasticsearch.endpoint", "vpc-assn-dev-chronos-devops-pmwehr2e7xujnadk53jsx4bjne.ap-southeast-2.es.amazonaws.com")
 		val cfgElasticSearchBulkInterval = appConfig.getInt("sink.elasticsearch.bulk-interval-ms", 60000)
@@ -123,121 +274,20 @@ object StreamingSdcWithAverageByDslam {
 		val cfgParquetParallelism = appConfig.getInt("sink.parquet.parallelism", 4)
 		val cfgParquetPrefix = appConfig.get("sink.parquet.prefix", "")
 		val cfgParquetSuffixFormat = appConfig.get("sink.parquet.suffixFormat", "yyyy-MM-dd-hh")
-		val cfgParquetInstantPath = appConfig.get("sink.parquet.instant.path", "file:///Users/Huyen/Desktop/SDCTest/ouput/instant")
-		val cfgParquetHistoricalPath = appConfig.get("sink.parquet.historical.path", "file:///Users/Huyen/Desktop/SDCTest/ouput/historical")
-
-		println("Streaming with the following parameters:")
+		val cfgParquetInstantPath = appConfig.get("sink.parquet.instant.path", "file:///Users/Huyen/Desktop/SDCTest/output/instant")
+		val cfgParquetHistoricalPath = appConfig.get("sink.parquet.historical.path", "file:///Users/Huyen/Desktop/SDCTest/output/historical")
+		val cfgParquetMetadataPath = appConfig.get("sink.parquet.metadata", "file:///Users/Huyen/Desktop/SDCTest/output/metadata")
 
 		/** set up the streaming execution environment */
-		val streamEnv =
-			if (cfgCheckpointEnabled) StreamExecutionEnvironment.getExecutionEnvironment
-					.setStateBackend(new RocksDBStateBackend(cfgCheckpointLocation, true))
-					.enableCheckpointing(cfgCheckpointInterval)
-			else StreamExecutionEnvironment.getExecutionEnvironment
-		if (cfgCheckpointEnabled) {
-			streamEnv.getCheckpointConfig.setMinPauseBetweenCheckpoints(cfgCheckpointMinPause)
-			streamEnv.getCheckpointConfig.setCheckpointTimeout(cfgCheckpointTimeout)
-			streamEnv.getCheckpointConfig.setFailOnCheckpointingErrors(false)
-			streamEnv.getCheckpointConfig.enableExternalizedCheckpoints(ExternalizedCheckpointCleanup.DELETE_ON_CANCELLATION)
-			streamEnv.getCheckpointConfig.setCheckpointingMode(CheckpointingMode.EXACTLY_ONCE)
-		}
-		streamEnv.getConfig.setTaskCancellationInterval(cfgTaskTimeoutInterval)
-		streamEnv.setParallelism(cfgParallelism)
-		streamEnv.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
+		val streamEnv = initEnvironment(appConfig)
 
 		/** Read fls, ams, and merge them to create enrichment stream */
-		val fifFlsParquet = new FlsRawFileInputFormat(new Path(cfgFlsParquetLocation))
-		fifFlsParquet.setFilesFilter(new EnrichmentFilePathFilter(cfgFlsParquetIgnore))
-		fifFlsParquet.setNestedFileEnumeration(true)
-		val streamFlsParquet: DataStream[FlsRaw] = streamEnv
-				.readFile(fifFlsParquet, cfgFlsParquetLocation,
-					FileProcessingMode.PROCESS_CONTINUOUSLY, cfgFlsParquetScanInterval, cfgFlsParquetScanConsistency)
-	        	.uid(OperatorId.SOURCE_FLS_RAW)
-	        	.name("FLS parquet")
-
-		val fifAmsParquet = new AmsRawFileInputFormat(new Path(cfgAmsParquetLocation))
-		fifAmsParquet.setFilesFilter(new EnrichmentFilePathFilter(cfgAmsParquetIgnore))
-		fifAmsParquet.setNestedFileEnumeration(true)
-		val streamAmsParquet: DataStream[AmsRaw] = streamEnv
-				.readFile(fifAmsParquet, cfgAmsParquetLocation,
-					FileProcessingMode.PROCESS_CONTINUOUSLY, cfgAmsParquetScanInterval, cfgAmsParquetScanConsistency)
-	        	.uid(OperatorId.SOURCE_AMS_RAW)
-				.name("AMS parquet")
-
-		val streamEnrichment = streamAmsParquet.connect(streamFlsParquet)
-        		.keyBy(_.customer_id, _.uni_prid)
-        		.flatMap(new MergeAmsFls)
-				.uid(OperatorId.AMS_FLS_MERGER)
-	        	.name("Merge AMS & FLS parquet")
-		/** Read fls initial and incremental stream */
-//		val ifFlsInitialCsv = new TextInputFormat(
-//			new org.apache.flink.core.fs.Path(cfgFlsInitialLocation))
-//		ifFlsInitialCsv.setFilesFilter(FilePathFilter.createDefaultFilter())
-//		ifFlsInitialCsv.setNestedFileEnumeration(true)
-//		val streamFlsInitial: DataStream[String] =
-//			streamEnv.readFile(ifFlsInitialCsv, cfgFlsIncrementalLocation,
-//				FileProcessingMode.PROCESS_CONTINUOUSLY, 5000L)
-//					.uid(OperatorId.SOURCE_FLS_INITIAL)
-//					.name("Initial FLS stream")
-//
-//		val ifFlsIncrementalCsv = new TextInputFormat(
-//			new org.apache.flink.core.fs.Path(cfgFlsIncrementalLocation))
-//		ifFlsIncrementalCsv.setFilesFilter(FilePathFilter.createDefaultFilter())
-//		ifFlsIncrementalCsv.setNestedFileEnumeration(true)
-//		val streamFlsIncremental: DataStream[String] =
-//			streamEnv.readFile(ifFlsIncrementalCsv, cfgFlsInitialLocation,
-//				FileProcessingMode.PROCESS_CONTINUOUSLY, 5000L)
-//					.uid(OperatorId.SOURCE_FLS_INCREMENTAL)
-//					.name("Incremental FLS stream")
-//
-//		val flsRaw = streamFlsIncremental.union(streamFlsInitial)
-//				.flatMap(line => {
-//					val v = line.split(",")
-//					List(FlsRecord(v(4).toLong,v(1),v(2),v(3),v(4)))
-//				})
-
-		val streamEnrichmentAgg = streamEnrichment
-//			.union(flsRaw)
+		val streamEnrichmentAgg = readEnrichmentData(appConfig, streamEnv)
+//  		.union(readEnrichmentStream(appConfig, streamEnv))
 
 		/** Read SDC streams */
-		implicit val iParser: SdcParser[SdcRawInstant] = SdcRawInstant
-		implicit val hParser: SdcParser[SdcRawHistorical] = SdcRawHistorical
-
-		val pathSdcInstant = new org.apache.flink.core.fs.Path(cfgSdcInstantLocation)
-		val fifSdcInstant = new SdcTarInputFormat(pathSdcInstant, true, "Instant")
-		fifSdcInstant.setFilesFilter(new SdcFilePathFilter(cfgSdcInstantIgnore))
-		fifSdcInstant.setNestedFileEnumeration(true)
-		val streamDslamInstant = streamEnv
-				.readFile(fifSdcInstant,
-					cfgSdcInstantLocation,
-					FileProcessingMode.PROCESS_CONTINUOUSLY,
-					cfgSdcInstantScanInterval, cfgSdcInstantScanConsistency)
-				.uid(OperatorId.SOURCE_SDC_INSTANT)
-				.assignTimestampsAndWatermarks(new DslamRecordTimeAssigner[String])
-				.name("Read SDC Instant")
-		val streamSdcRawInstant: DataStream[SdcRawInstant] = streamDslamInstant
-				.flatMap(new ParseSdcRecord[SdcRawInstant])
-				.uid(OperatorId.SDC_PARSER_INSTANT)
-				.name("Parse SDC Instant")
-				.filter(r => !r.data.if_admin_status.equalsIgnoreCase("down"))
-	        	.uid(OperatorId.SDC_PARSER_INSTANT + "_1")
-
-		val pathSdcHistorical = new org.apache.flink.core.fs.Path(cfgSdcHistoricalLocation)
-		val fifSdcHistorical = new SdcTarInputFormat(pathSdcHistorical, false, "Historical")
-		fifSdcHistorical.setFilesFilter(new SdcFilePathFilter(cfgSdcHistoricalIgnore))
-		fifSdcHistorical.setNestedFileEnumeration(true)
-		val streamDslamHistorical = streamEnv
-				.readFile(fifSdcHistorical,
-					cfgSdcHistoricalLocation,
-					FileProcessingMode.PROCESS_CONTINUOUSLY,
-					cfgSdcHistoricalScanInterval, cfgSdcHistoricalScanConsistency)
-				.uid(OperatorId.SOURCE_SDC_HISTORICAL)
-				.assignTimestampsAndWatermarks(new DslamRecordTimeAssigner[String])
-				.name("Read SDC Historical")
-		val streamSdcRawHistorical: DataStream[SdcRawHistorical] = streamDslamHistorical
-	        	.flatMap(new ParseSdcRecord[SdcRawHistorical]())
-				.uid(OperatorId.SDC_PARSER_HISTORICAL)
-				.name("Parse SDC Historical")
+		val (streamDslamInstant, streamSdcRawInstant) = readInstantData(appConfig, streamEnv)
+		val (streamDslamHistorical, streamSdcRawHistorical) = readHistoricalData(appConfig, streamEnv)
 
 		/** Find missing DSLAM */
 		lazy val streamDslamMetadataInstant: DataStream[DslamMetadata] = streamDslamInstant
@@ -362,26 +412,25 @@ object StreamingSdcWithAverageByDslam {
 		} else {
 			if (cfgElasticSearchCombinedSdcEnabled)
 				streamEnriched
-						.addSink(SdcElasticSearchSink.createSdcSink[SdcEnrichedBase](
+						.addSink(SdcElasticSearchSink.createUpdatableSdcElasticSearchSink[SdcEnrichedBase](
 							cfgElasticSearchEndpoint,
 							cfgElasticSearchCombinedSdcIndexName,
 							cfgElasticSearchBulkSize,
 							cfgElasticSearchBulkInterval,
-							cfgElasticSearchRetries,
-							SdcElasticSearchSink.UPDATABLE_TIME_SERIES_INDEX))
+							cfgElasticSearchRetries))
 						.setParallelism(cfgElasticSearchCombinedSdcParallelism)
 						.uid(OperatorId.SINK_ELASTIC_COMBINED)
 						.name("ES - Combined")
 
 			if (cfgElasticSearchEnrichmentEnabled)
 				streamEnrichmentAgg
-					.addSink(SdcElasticSearchSink.createSdcSink[FlsRecord](
+					.addSink(SdcElasticSearchSink.createElasticSearchSink[FlsRecord](
 						cfgElasticSearchEndpoint,
-						cfgElasticSearchEnrichmentIndexName,
-						-1,
+						r => cfgElasticSearchEnrichmentIndexName,
+						r => r.toMap,
+						r => s"${r.dslam}_${r.port}",
 						cfgElasticSearchBulkInterval,
-						cfgElasticSearchRetries,
-						SdcElasticSearchSink.SINGLE_INSTANCE_INDEX))
+						cfgElasticSearchRetries))
 					.setParallelism(cfgElasticSearchEnrichmentParallelism)
 					.uid(OperatorId.SINK_ELASTIC_ENRICHMENT)
 					.name("ES - Enrichment")
@@ -400,13 +449,13 @@ object StreamingSdcWithAverageByDslam {
 
 			if (cfgElasticSearchAverageEnabled)
 				streamAverage
-					.addSink(SdcElasticSearchSink.createSdcSink[SdcAverage](
+					.addSink(SdcElasticSearchSink.createElasticSearchSink[SdcAverage](
 						cfgElasticSearchEndpoint,
-						cfgElasticSearchAverageIndexName,
-						-1,
+						r => s"${cfgElasticSearchAverageIndexName}_${SdcElasticSearchSink.DAILY_INDEX_SUFFIX_FORMATTER.format(Instant.ofEpochMilli(r.ts))}",
+						r => r.toMap,
+						r => s"${r.dslam}_${r.port}_${r.ts}",
 						cfgElasticSearchBulkInterval,
-						cfgElasticSearchRetries,
-						SdcElasticSearchSink.TIME_SERIES_INDEX))
+						cfgElasticSearchRetries))
 					.setParallelism(cfgElasticSearchAverageParallelism)
 					.uid(OperatorId.SINK_ELASTIC_AVERAGE)
 					.name("ES - Rolling Average")
@@ -425,22 +474,31 @@ object StreamingSdcWithAverageByDslam {
 						.setParallelism(cfgParquetParallelism)
 						.uid(OperatorId.SINK_PARQUET_HISTORICAL)
 						.name("S3 - Historical")
+
+				streamDslamMetadataInstant.union(streamDslamMetadataHistorical).addSink(
+					SdcParquetFileSink.buildSinkGeneric[DslamMetadata](DslamMetadata.getSchema(),
+						cfgParquetMetadataPath, cfgParquetPrefix, cfgParquetSuffixFormat))
+					.setParallelism(cfgParquetParallelism)
+					.uid(OperatorId.SINK_PARQUET_METADATA)
+					.name("S3 - Metadata")
 			}
 
 			if (cfgElasticSearchStatsEnabled) {
 				streamDslamMetadataInstant.union(streamDslamMetadataHistorical)
-						.addSink(SdcElasticSearchSink.createSingleIndexSink[DslamMetadata](
-							cfgElasticSearchEndpoint, cfgElasticSearchStatsDslamMetaIndexName,
+						.addSink(SdcElasticSearchSink.createElasticSearchSink[DslamMetadata](
+							cfgElasticSearchEndpoint,
+							r => s"${cfgElasticSearchStatsDslamMetaIndexName}_${SdcElasticSearchSink.MONTHLY_INDEX_SUFFIX_FORMATTER.format(Instant.ofEpochMilli(r.ts))}",
 							DslamMetadata.toMap,
-							r => s"${if (r.isInstant) "I" else "H"}_${r.name}_${r.metricsTime}",
+							r => s"${if (r.isInstant) "I" else "H"}_${r.name}_${r.ts}",
 							cfgElasticSearchBulkInterval, cfgElasticSearchRetries))
 						.setParallelism(1)
 						.uid(OperatorId.SINK_ELASTIC_METADATA)
 						.name("ES - DSLAM Info")
 
 				streamDslamMissingInstant
-						.addSink(SdcElasticSearchSink.createSingleIndexSink[(Long, String)](
-							cfgElasticSearchEndpoint, cfgElasticSearchStatsMissingInstantIndexName,
+						.addSink(SdcElasticSearchSink.createElasticSearchSink[(Long, String)](
+							cfgElasticSearchEndpoint,
+							r => s"${cfgElasticSearchStatsMissingInstantIndexName}_${SdcElasticSearchSink.MONTHLY_INDEX_SUFFIX_FORMATTER.format(Instant.ofEpochMilli(r._1))}",
 							r => Map("metrics_timestamp" -> (r._1 + cfgRollingAverageSlideInterval * 60L * 1000L), "dslam" -> r._2),
 							r => s"I_${r._2}_${r._1}",
 							cfgElasticSearchBulkInterval, cfgElasticSearchRetries))
@@ -449,8 +507,9 @@ object StreamingSdcWithAverageByDslam {
 						.name("ES - Missing DSLAM - Instant")
 
 				streamDslamMissingHistorical
-						.addSink(SdcElasticSearchSink.createSingleIndexSink[(Long, String)](
-							cfgElasticSearchEndpoint, cfgElasticSearchStatsMissingHistoricalIndexName,
+						.addSink(SdcElasticSearchSink.createElasticSearchSink[(Long, String)](
+							cfgElasticSearchEndpoint,
+							r => s"${cfgElasticSearchStatsMissingHistoricalIndexName}_${SdcElasticSearchSink.MONTHLY_INDEX_SUFFIX_FORMATTER.format(Instant.ofEpochMilli(r._1))}",
 							r => Map("metrics_timestamp" -> (r._1 + cfgRollingAverageSlideInterval * 60L * 1000L), "dslam" -> r._2),
 							r => s"H_${r._2}_${r._1}",
 							cfgElasticSearchBulkInterval, cfgElasticSearchRetries))

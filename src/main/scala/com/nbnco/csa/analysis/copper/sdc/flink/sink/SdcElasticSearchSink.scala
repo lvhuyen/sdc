@@ -4,7 +4,7 @@ import java.time.{Instant, ZoneId}
 import java.time.format.DateTimeFormatter
 import java.util.Optional
 
-import com.nbnco.csa.analysis.copper.sdc.data.{SdcEnrichedBase, SdcRecord}
+import com.nbnco.csa.analysis.copper.sdc.data.{SdcEnrichedBase, SdcRecord, TemporalEvent}
 import org.apache.flink.streaming.connectors.elasticsearch.{ActionRequestFailureHandler, ElasticsearchSinkBase, ElasticsearchSinkFunction, RequestIndexer}
 import org.apache.flink.api.common.functions.RuntimeContext
 import org.apache.flink.streaming.connectors.elasticsearch6.ElasticsearchSink
@@ -26,12 +26,15 @@ import scala.collection.JavaConversions._
 object SdcElasticSearchSink {
 	private val INDEX_TYPE = "_doc"
 	private val LOG = LoggerFactory.getLogger(SdcElasticSearchSink.getClass)
-	private val INDEX_SUFFIX_FORMATTER = DateTimeFormatter.ofPattern("uuuuMMdd").withZone(ZoneId.of("UTC"))
+
+	val DAILY_INDEX_SUFFIX_FORMATTER = DateTimeFormatter.ofPattern("uuuuMMdd").withZone(ZoneId.of("UTC"))
+	val MONTHLY_INDEX_SUFFIX_FORMATTER = DateTimeFormatter.ofPattern("uuuuMM").withZone(ZoneId.of("UTC"))
 
 	val UPDATABLE_TIME_SERIES_INDEX = 0
 	val SINGLE_INSTANCE_INDEX = 1
 	val TIME_SERIES_INDEX = 2
 	val DAILY_INDEX = 3
+	val MONTHLY_INDEX = 4
 
 	private class InsertDataSinkFunction[T] (indexNameBuilder: (T) => String, dataBuilder: (T) => Map[String, Any], idBuilder: T => String)
 			extends ElasticsearchSinkFunction[T] {
@@ -43,17 +46,6 @@ object SdcElasticSearchSink {
 			requestIndexer.add(createIndexRequest(element))
 		}
 	}
-
-//	private class InsertDataSinkFunction[T <: SdcRecord] (indexNameBuilder: (T) => String, idBuilder: T => String)
-//			extends ElasticsearchSinkFunction[T] {
-//		def createIndexRequest(element: T): IndexRequest = {
-//			new IndexRequest(indexNameBuilder(element), INDEX_TYPE, idBuilder(element))
-//					.source(mapAsJavaMap(element.toMap))
-//		}
-//		override def process(element: T, runtimeContext: RuntimeContext, requestIndexer: RequestIndexer): Unit = {
-//			requestIndexer.add(createIndexRequest(element))
-//		}
-//	}
 
 	private class UpsertDataSinkFunction[T <: SdcRecord] (indexNameBuilder: (T) => String, idBuilder: T => String)
 			extends ElasticsearchSinkFunction[T] {
@@ -90,7 +82,6 @@ object SdcElasticSearchSink {
 					case _ =>
 				}
 			} else {
-				// for all other failures, fail the sink
 				LOG.error(s"ELASTICSEARCH FAILED:\n    statusCode $restStatusCode\n    message: ${failure.getMessage}\n${failure.getStackTrace}")
 				val inner = failure.getCause
 				if (inner != null)
@@ -100,37 +91,17 @@ object SdcElasticSearchSink {
 		}
 	}
 
-	def createInsertSink[T <: SdcRecord](endpoint: String, indexNamePrefix: String, bulkSize: Int, bulkInterval: Int, flushRetries: Int, indexType: Int) = {
+	def createUpdatableSdcElasticSearchSink[T <: SdcRecord](endpoint: String, indexNamePrefix: String, bulkSize: Int, bulkInterval: Int, flushRetries: Int) = {
 		val httpHosts = new java.util.ArrayList[HttpHost]
 		httpHosts.add(new HttpHost(endpoint, 443, "https"))
 
 		val esSinkBuilder = new ElasticsearchSink.Builder[T](
 			httpHosts,
-			indexType match {
-				case SINGLE_INSTANCE_INDEX =>
-					new InsertDataSinkFunction[T](
-						_ => indexNamePrefix,
-						r => r.toMap,
-						r => s"${r.dslam}_${r.port}"
-					)
-				case DAILY_INDEX =>
-					new InsertDataSinkFunction[T](
-						r => s"$indexNamePrefix-${INDEX_SUFFIX_FORMATTER.format(Instant.ofEpochMilli(r.ts))}",
-						r => r.toMap,
-						r => s"${r.dslam}_${r.port}"
-					)
-				case TIME_SERIES_INDEX =>
-					new InsertDataSinkFunction[T](
-						r => s"$indexNamePrefix-${INDEX_SUFFIX_FORMATTER.format(Instant.ofEpochMilli(r.ts))}",
-						r => r.toMap,
-						r => s"${r.dslam}_${r.port}_${r.ts}"
-					)
-				case _ =>
-					new UpsertDataSinkFunction[T](
-						r => s"$indexNamePrefix-${INDEX_SUFFIX_FORMATTER.format(Instant.ofEpochMilli(r.ts))}",
-						r => s"${r.dslam}_${r.port}_${r.ts}"
-					)
-			})
+			new UpsertDataSinkFunction[T](
+				r => s"$indexNamePrefix-${DAILY_INDEX_SUFFIX_FORMATTER.format(Instant.ofEpochMilli(r.ts))}",
+				r => s"${r.dslam}_${r.port}_${r.ts}"
+			)
+		)
 
 		esSinkBuilder.setFailureHandler(SdcElasticSearchFailureHandler)
 		if (bulkSize > 0)
@@ -145,65 +116,22 @@ object SdcElasticSearchSink {
 		esSinkBuilder.build()
 	}
 
-
-	def createSdcSink[T <: SdcRecord](endpoint: String, indexNamePrefix: String, bulkSize: Int, bulkInterval: Int, flushRetries: Int, indexType: Int) = {
+	def createElasticSearchSink[T](endpoint: String, indexNameBuilder: T => String,
+																									dataBuilder: T => Map[String, Any], docIdBuilder: T => String,
+																									bulkInterval: Int, flushRetries: Int) = {
 		val httpHosts = new java.util.ArrayList[HttpHost]
 		httpHosts.add(new HttpHost(endpoint, 443, "https"))
 
 		val esSinkBuilder = new ElasticsearchSink.Builder[T](
 			httpHosts,
-			indexType match {
-				case SINGLE_INSTANCE_INDEX =>
-					new InsertDataSinkFunction[T](
-						_ => indexNamePrefix,
-						r => r.toMap,
-						r => s"${r.dslam}_${r.port}"
-					)
-				case DAILY_INDEX =>
-					new InsertDataSinkFunction[T](
-						r => s"$indexNamePrefix-${INDEX_SUFFIX_FORMATTER.format(Instant.ofEpochMilli(r.ts))}",
-						r => r.toMap,
-						r => s"${r.dslam}_${r.port}"
-					)
-				case TIME_SERIES_INDEX =>
-					new InsertDataSinkFunction[T](
-						r => s"$indexNamePrefix-${INDEX_SUFFIX_FORMATTER.format(Instant.ofEpochMilli(r.ts))}",
-						r => r.toMap,
-						r => s"${r.dslam}_${r.port}_${r.ts}"
-					)
-				case _ =>
-					new UpsertDataSinkFunction[T](
-						r => s"$indexNamePrefix-${INDEX_SUFFIX_FORMATTER.format(Instant.ofEpochMilli(r.ts))}",
-						r => s"${r.dslam}_${r.port}_${r.ts}"
-					)
-			})
-
-		esSinkBuilder.setFailureHandler(SdcElasticSearchFailureHandler)
-		if (bulkSize > 0)
-			esSinkBuilder.setBulkFlushMaxSizeMb(bulkSize)
-		if (bulkInterval > 0)
-			esSinkBuilder.setBulkFlushInterval(bulkInterval)
-		esSinkBuilder.setBulkFlushBackoff(true)
-		esSinkBuilder.setBulkFlushBackoffType(ElasticsearchSinkBase.FlushBackoffType.EXPONENTIAL)
-		esSinkBuilder.setBulkFlushBackoffDelay(50)
-		esSinkBuilder.setBulkFlushBackoffRetries(flushRetries)
-
-		esSinkBuilder.build()
-	}
-
-	def createSingleIndexSink[T](endpoint: String, indexName: String, dataBuilder: (T) => Map[String, Any], docIdBuilder: (T) => String, bulkInterval: Int, flushRetries: Int) = {
-		val httpHosts = new java.util.ArrayList[HttpHost]
-		httpHosts.add(new HttpHost(endpoint, 443, "https"))
-
-		val esSinkBuilder = new ElasticsearchSink.Builder[T](
-			httpHosts,
-			new InsertDataSinkFunction(_ => indexName,
+			new InsertDataSinkFunction(indexNameBuilder,
 				dataBuilder,
 				docIdBuilder
 			)
 		)
 
 		esSinkBuilder.setFailureHandler(SdcElasticSearchFailureHandler)
+		esSinkBuilder.setBulkFlushMaxSizeMb(10)
 		if (bulkInterval > 0)
 			esSinkBuilder.setBulkFlushInterval(bulkInterval)
 		esSinkBuilder.setBulkFlushBackoff(true)

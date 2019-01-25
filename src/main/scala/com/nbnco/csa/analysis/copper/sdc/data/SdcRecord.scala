@@ -18,8 +18,7 @@ package com.nbnco.csa.analysis.copper.sdc.data
 //}
 
 
-trait SdcRecord {
-	val ts: Long
+trait SdcRecord extends TemporalEvent {
 	val dslam: String
 	val port: String
 //	def this ( ) = this (0L, "", "")
@@ -30,9 +29,4 @@ trait SdcRecord {
 			"metrics_timestamp" -> ts
 		)
 	}
-
-//	override def toString: String = {
-//		val name = this.getClass.toString
-//		s"${name.substring(name.lastIndexOf('.') + 1)}($ts,$dslam,$port)"
-//	}
 }

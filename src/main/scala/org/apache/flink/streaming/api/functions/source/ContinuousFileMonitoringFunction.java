@@ -48,15 +48,7 @@ import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
-import java.util.Arrays;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.TreeMap;
+import java.util.*;
 
 /**
  * This is the single (non-parallel) monitoring task which takes a {@link FileInputFormat}
@@ -128,8 +120,8 @@ public class ContinuousFileMonitoringFunction<OUT>
 
     /** The current directory watermark, used to skip reading old directories */
 
-    public static final Instant IGNORE_THIS_DIRECTORY = Instant.ofEpochMilli(Long.MIN_VALUE);;
-    public static final Instant MIN_DIR_TIMESTAMP = Instant.ofEpochMilli(Long.MIN_VALUE + 1000);;
+    public static final Instant IGNORE_THIS_DIRECTORY = Instant.ofEpochMilli(Long.MIN_VALUE);
+    public static final Instant MIN_DIR_TIMESTAMP = Instant.ofEpochMilli(Long.MIN_VALUE + 1000);
     private volatile Instant dirWatermark = MIN_DIR_TIMESTAMP;
 
     /** Max amount of time between latest directory and the directory that will be eligible to scan */
@@ -211,11 +203,11 @@ public class ContinuousFileMonitoringFunction<OUT>
         if (this.readConsistencyOffset > 10) {
             this.dirScanChunkSizeInSeconds = 900L;
             this.dirRescanIntervalInSeconds = 8 * dirScanChunkSizeInSeconds;
+            dirWatermark = dirWatermark.plusSeconds(dirRescanIntervalInSeconds);
         } else {
             this.dirScanChunkSizeInSeconds = 0L;
             this.dirRescanIntervalInSeconds = Integer.MAX_VALUE;
         }
-        dirWatermark = dirWatermark.plusSeconds(dirRescanIntervalInSeconds);
     }
 
     @VisibleForTesting
@@ -386,37 +378,82 @@ public class ContinuousFileMonitoringFunction<OUT>
         assert (Thread.holdsLock(checkpointLock));
 
         Map<Path, FileStatus> eligibleFiles;
+
+        // When dirScanChunkSizeInSeconds > 0, we will partition the directories basing on their name (conversion
+        //  from names to timestamps), and only read the folders with timestamps within dirRescanIntervalInSeconds
+        //  up to the dirWatermark.
+        //
         if (dirScanChunkSizeInSeconds > 0) {
             eligibleFiles = new HashMap<>();
-            Map<Instant, List<FileStatus>> availableDirs = listDirsAfterTimestamp(fs, new Path(path),
+            // availableDirs is the list of directories have mapped timestamp equal to or greater than
+            // the current (low) watermark
+            SortedMap<Instant, List<FileStatus>> availableDirs = listDirsAfterTimestamp(fs, new Path(path),
                     dirWatermark.minusSeconds(dirRescanIntervalInSeconds));
 
             if (availableDirs.size() > 0) {
-                Instant lastestTimestamp = dirWatermark.minusSeconds(dirRescanIntervalInSeconds);
-                Instant curWindowEnd = lastestTimestamp.plusSeconds(dirScanChunkSizeInSeconds);
+                Instant curWindowBegin = dirWatermark.minusSeconds(dirRescanIntervalInSeconds);
 
-                for (Map.Entry<Instant, List<FileStatus>> directories : availableDirs.entrySet()) {
-                    Instant curDirTimestamp = directories.getKey();
-                    if (!curWindowEnd.isAfter(curDirTimestamp)) {
-                        if (eligibleFiles.size() > 0) {
-                            break;
-                        } else {
-                            curWindowEnd = curDirTimestamp.plusSeconds(dirScanChunkSizeInSeconds);
+                // list the eligible files in the current chunk
+                // if no files was found, (fast) forward to the next chunk
+                SortedMap<Instant, List<FileStatus>> curDirsChunk, nextDirsChunk;
+                while (true) {
+                    Instant curWindowEnd = curWindowBegin.plusSeconds(dirScanChunkSizeInSeconds);
+                    curDirsChunk = availableDirs.subMap(curWindowBegin, curWindowEnd);
+                    nextDirsChunk = availableDirs.tailMap(curWindowEnd);
+
+                    for (List<FileStatus> dirsAtCurTimestamp : curDirsChunk.values()) {
+                        for (FileStatus directory : dirsAtCurTimestamp) {
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("Listing files in dir: " + directory);
+                            }
+                            eligibleFiles.putAll(listEligibleFiles(fs, directory.getPath()));
                         }
                     }
-                    lastestTimestamp = curDirTimestamp;
-                    for (FileStatus directory : directories.getValue()) {
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("Listing files in dir: " + directory);
-                        }
-                        eligibleFiles.putAll(listEligibleFiles(fs, directory.getPath()));
-                    }
+
+                    if (eligibleFiles.size() == 0 && !nextDirsChunk.isEmpty()) {
+                        curWindowBegin = nextDirsChunk.firstKey();
+                    } else
+                        break;
                 }
 
-                if (eligibleFiles.size() > 0 && lastestTimestamp.isAfter(dirWatermark)) {
-                    LOG.warn("{} has dir watermark being advanced from {} to {}", path, dirWatermark, lastestTimestamp);
-                    dirWatermark = lastestTimestamp;
+                // if some eligible files have been found then bring the (high) dirWatermark forward
+                // upto the latest directory timestamp
+                if (eligibleFiles.size() > 0 && curDirsChunk.lastKey().isAfter(dirWatermark)) {
+                    LOG.info("{} has dir watermark being advanced from {} to {}", path, dirWatermark, curDirsChunk.lastKey());
+                    dirWatermark = curDirsChunk.lastKey();
                 }
+
+//                Instant latestTimestamp = dirWatermark.minusSeconds(dirRescanIntervalInSeconds);
+//                Instant curWindowEnd = latestTimestamp.plusSeconds(dirScanChunkSizeInSeconds);
+//                for (Map.Entry<Instant, List<FileStatus>> directories : availableDirs.entrySet()) {
+//                    Instant curDirTimestamp = directories.getKey();
+//                    // when the currentDirectoryTimestamp is later than the currentWindowEnd:
+//                    //  (1) if some eligible files have been identified, then break the loop, to make sure that
+//                    //      all files in the current window have been processed before advancing the window.
+//                    //  (2) if no eligible files have been identified, then fast forward the window to the
+//                    //      currentDirectoryTimestamp
+//                    if (!curWindowEnd.isAfter(curDirTimestamp)) {
+//                        if (eligibleFiles.size() > 0) {
+//                            break;
+//                        } else {
+//                            curWindowEnd = curDirTimestamp.plusSeconds(dirScanChunkSizeInSeconds);
+//                        }
+//                    }
+//                    latestTimestamp = curDirTimestamp;
+//                    for (FileStatus directory : directories.getValue()) {
+//                        if (LOG.isDebugEnabled()) {
+//                            LOG.debug("Listing files in dir: " + directory);
+//                        }
+//                        eligibleFiles.putAll(listEligibleFiles(fs, directory.getPath()));
+//                    }
+//                }
+//
+//                // if some eligible files have been found then bring the (high) dirWatermark forward
+//                // upto the latest directory timestamp
+//                if (eligibleFiles.size() > 0 && latestTimestamp.isAfter(dirWatermark)) {
+//                    LOG.info("{} has dir watermark being advanced from {} to {}", path, dirWatermark, latestTimestamp);
+//                    dirWatermark = latestTimestamp;
+//                }
             }
 
         } else {
@@ -540,11 +577,17 @@ public class ContinuousFileMonitoringFunction<OUT>
             return files;
         }
     }
-    /**
+
+    /***
+     /**
      * Returns the paths of the files not yet processed.
      * @param fileSystem The filesystem where the monitored directory resides.
+     * @param path       The root of monitoring path
+     * @param watermark
+     * @return
+     * @throws IOException
      */
-    private Map<Instant, List<FileStatus>> listDirsAfterTimestamp(FileSystem fileSystem, Path path, Instant watermark) throws IOException {
+    private SortedMap<Instant, List<FileStatus>> listDirsAfterTimestamp(FileSystem fileSystem, Path path, Instant watermark) throws IOException {
 
         final FileStatus[] statuses;
         try {
@@ -552,29 +595,35 @@ public class ContinuousFileMonitoringFunction<OUT>
         } catch (IOException e) {
             // we may run into an IOException if files are moved while listing their status
             // delay the check for eligible files in this case
-            return Collections.emptyMap();
+            return Collections.emptySortedMap();
         }
 
         if (statuses == null) {
             LOG.warn("Path does not exist: {}", path);
-            return Collections.emptyMap();
+            return Collections.emptySortedMap();
         } else if (statuses.length == 0) {
-            return Collections.emptyMap();
+            return Collections.emptySortedMap();
         } else {
-            Map<Instant, List<FileStatus>> dirsSortedByTimestamp = new TreeMap<>();
+            TreeMap<Instant, List<FileStatus>> dirsSortedByTimestamp = new TreeMap<>();
             // handle the new files
             for (FileStatus status : statuses) {
                 if (status.isDir() && format.acceptFile(status)) {
                     ChronoUnit curDirLevel = getDirectoryLevel(status);
                     Instant curDirTimestamp = getDirectoryTimestamp(status);
                     switch (curDirLevel) {
+                        // in case of ChronoUnit.FOREVER: list all sub directories (one level deeper), no matter what
+                        // the current mapped directory timestamp is
                         case FOREVER:
-                            listDirsAfterTimestamp(fileSystem, status.getPath(), watermark).forEach((k, v) ->
-                                    dirsSortedByTimestamp.merge(k, v, (v1, v2) -> {
-                                        v1.addAll(v2);
-                                        return v1;
-                                    }));
+                            listDirsAfterTimestamp(fileSystem, status.getPath(), watermark)
+                                    .forEach((k, v) ->
+                                            dirsSortedByTimestamp.merge(k, v, (v1, v2) -> {
+                                                v1.addAll(v2);
+                                                return v1;
+                                            }));
                             break;
+                        // in case of ChronoUnit.SECONDS down to ChronoUnit.NANOS, check the mapped timestamp of
+                        // the currentDir, and add it to the list of might-be-eligible directories if that timestamp
+                        // is greater than or equal to the current (low) watermark
                         case SECONDS:
                         case MILLIS:
                         case MICROS:
@@ -588,13 +637,20 @@ public class ContinuousFileMonitoringFunction<OUT>
                                 tmpDirsList.add(status);
                             }
                             break;
+                        // in case of ChronoUnit.MINUTES or higher, check the mapped timestamp of the currentDir
+                        // against the *TRUNCATED-to-currentDir-level* watermark, and add it to the list of
+                        // might-be-eligible directories if that timestamp is greater than or equal to that
+                        // truncated watermark.
+                        // One example of the case where this truncation helps is watermark is 9:20, while the current
+                        // directory has timestamp of 9:00 but has child directories of 9:25, 9:30,...
                         default:
                             if (!watermark.truncatedTo(curDirLevel).isAfter(curDirTimestamp)) {
-                                listDirsAfterTimestamp(fileSystem, status.getPath(), watermark).forEach((k, v) ->
-                                        dirsSortedByTimestamp.merge(k, v, (v1, v2) -> {
-                                            v1.addAll(v2);
-                                            return v1;
-                                        }));
+                                listDirsAfterTimestamp(fileSystem, status.getPath(), watermark)
+                                        .forEach((k, v) ->
+                                                dirsSortedByTimestamp.merge(k, v, (v1, v2) -> {
+                                                    v1.addAll(v2);
+                                                    return v1;
+                                                }));
                             }
                     }
                 }
@@ -603,6 +659,11 @@ public class ContinuousFileMonitoringFunction<OUT>
         }
     }
 
+    /***
+     * Override this method to change the way directory names get mapped to timestamps
+     * @param directory
+     * @return
+     */
     protected Instant getDirectoryTimestamp(FileStatus directory) {
         String relativePath = directory.getPath().getPath().split(basePath, 2)[1];
         String dirs[] = relativePath.split("/");
@@ -619,6 +680,13 @@ public class ContinuousFileMonitoringFunction<OUT>
         }
     }
 
+    /***
+     * Override this function to change the way directory level is interpreted
+     * @param directory
+     * @return a ChronoUnit. This will be later be used in listDirsAfterTimestamp function to decide whether to keep
+     *         listing the subdirectories (one level below) or not. If the return value is ChronoUnit.FOREVER, then
+     *         subdirectories will be listed.
+     */
     protected ChronoUnit getDirectoryLevel(FileStatus directory) {
         String relativePath = directory.getPath().getPath().split(basePath, 2)[1];
         String dirs[] = relativePath.split("/");
