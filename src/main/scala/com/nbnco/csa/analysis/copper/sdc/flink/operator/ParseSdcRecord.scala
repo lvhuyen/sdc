@@ -70,44 +70,46 @@ class ParseSdcRecord[OutType <: SdcRawBase : SdcParser] extends RichFlatMapFunct
 	}
 
 	override def flatMap(in: DslamRaw[String], collector: Collector[OutType]): Unit = {
-		val actual_cols = in.metadata.columns.split(",")
-		val indices = Array.tabulate(actual_cols.length) { i => (actual_cols(i), i) }.toMap
+		if (in.data.nonEmpty) {
+			val actual_cols = in.metadata.columns.split(",")
+			val indices = Array.tabulate(actual_cols.length) { i => (actual_cols(i), i) }.toMap
 
-		val (ref, records_cnt, files_cnt) =
-			if (in.metadata.isInstant) {
-				(ParseSdcRecord.INSTANT_REF_HEADER_COLUMNS.map(indices(_)),
+			val (ref, records_cnt, files_cnt) =
+				if (in.metadata.isInstant) {
+					(ParseSdcRecord.INSTANT_REF_HEADER_COLUMNS.map(indices(_)),
 						ParseSdcRecord.INSTANT_BAD_RECORDS_COUNT,
 						ParseSdcRecord.INSTANT_BAD_FILES_COUNT)
-			}
-			else {
-				(ParseSdcRecord.HISTORICAL_REF_HEADER_COLUMNS.map(indices(_)),
+				}
+				else {
+					(ParseSdcRecord.HISTORICAL_REF_HEADER_COLUMNS.map(indices(_)),
 						ParseSdcRecord.HISTORICAL_BAD_RECORDS_COUNT,
 						ParseSdcRecord.HISTORICAL_BAD_FILES_COUNT)
-			}
+				}
 
 
-		findPattern(in.data.head._1) match {
-			case Some((regex, func)) =>
-				in.data.foreach(pair =>
-					try {
-						val port = pair._1 match {
-							case regex(r, s, lt, p) => func(r, s, lt, p)
-							case _ => throw new InvalidPortFormatException
+			findPattern(in.data.head._1) match {
+				case Some((regex, func)) =>
+					in.data.foreach(pair =>
+						try {
+							val port = pair._1 match {
+								case regex(r, s, lt, p) => func(r, s, lt, p)
+								case _ => throw new InvalidPortFormatException
+							}
+							val p = implicitly[SdcParser[OutType]]
+							val rec = p.parse(in.metadata.ts, in.metadata.name, port, pair._2, ref)
+							collector.collect(rec)
+						} catch {
+							case e@(_: java.lang.NumberFormatException | _: InvalidPortFormatException) =>
+								records_cnt.inc()
+								ParseSdcRecord.LOG.warn(s"Bad record in file ${in.metadata.relativePath}: ${pair} - ${e.getMessage}")
+								ParseSdcRecord.LOG.info("Stacktrace: {}", e.getStackTrace)
 						}
-						val p = implicitly[SdcParser[OutType]]
-						val rec = p.parse(in.metadata.ts, in.metadata.name, port, pair._2, ref)
-						collector.collect(rec)
-					} catch {
-						case e: Throwable =>
-							records_cnt.inc()
-							ParseSdcRecord.LOG.warn(s"Bad record in file ${in.metadata.relativePath}: ${pair} - ${e.getMessage}")
-							ParseSdcRecord.LOG.info("Stacktrace: {}", e.getStackTrace)
-					}
-				)
+					)
 
-			case _ =>
-				files_cnt.inc()
-				ParseSdcRecord.LOG.warn(s"Bad port format in file ${in.metadata.relativePath}: ${in.data.head._1}")
+				case _ =>
+					files_cnt.inc()
+					ParseSdcRecord.LOG.warn(s"Unknown port format in file ${in.metadata.relativePath}: ${in.data.head._1}")
+			}
 		}
 	}
 }

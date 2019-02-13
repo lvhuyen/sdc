@@ -1,6 +1,6 @@
 {
 	"order": 0,
-	"template": "copper-sdc-dslam-metadata*",
+	"template": "sdc-dslam-metadata*",
 	"refresh_interval": "30s",
 	"mappings": {
 		"_doc": {
@@ -31,6 +31,15 @@
 					"format": "epoch_millis",
 					"index": true
 				},
+				"componentFileTime": {
+					"type": "date",
+					"format": "epoch_millis",
+					"index": true
+				},
+				"recordsCount": {
+					"type": "integer",
+					"index": true
+				},
 				"dslam": {
 					"type": "keyword",
 					"ignore_above": 32,
@@ -46,7 +55,7 @@
 		}
 	},
 	"aliases": {
-		"copper-sdc-dslam-metadata": {}
+		"sdc-dslam-metadata": {}
 	}
 }
-PUT /_template/copper-sdc-dslam-metadata-template
+PUT /_template/sdc-dslam-metadata-template

@@ -53,7 +53,9 @@ object SdcElasticSearchSink {
 			val data = mapAsJavaMap(element.toMap)
 			new UpdateRequest(indexNameBuilder(element), INDEX_TYPE, idBuilder(element))
 					.doc(data)
-					.upsert(data)
+					.docAsUpsert(true)
+	  			.retryOnConflict(2)
+	  			.detectNoop(false)
 		}
 		override def process(element: T, runtimeContext: RuntimeContext, requestIndexer: RequestIndexer): Unit = {
 			requestIndexer.add(createUpdateRequest(element))
@@ -73,20 +75,29 @@ object SdcElasticSearchSink {
 					case s: IndexRequest => indexer.add(s)
 					case _ =>
 				}
-			} else if (ExceptionUtils.findThrowable(failure, classOf[org.elasticsearch.index.engine.VersionConflictEngineException]) != Optional.empty()) {
-				LOG.warn("Failed inserting record to ElasticSearch: statusCode {} message: {} record: {} stacktrace {}.\nRetrying",
-					restStatusCode.toString, failure.getMessage, actionRequest.toString, failure.getStackTrace)
+			} else if (ExceptionUtils.findThrowableWithMessage(failure, "version_conflict_engine_exception") != Optional.empty()) {
 				actionRequest match {
-					case s: UpdateRequest => indexer.add(s)
-					case s: IndexRequest => indexer.add(s)
+					case s: UpdateRequest =>
+						LOG.warn(s"Failed inserting record to ElasticSearch due to version conflict (${s.version()}).")
+						LOG.warn(actionRequest.toString)
 					case _ =>
+						LOG.warn("Failed inserting record to ElasticSearch due to version conflict. However, this is not an Update-Request. Don't know why.")
+						LOG.warn(actionRequest.toString)
+						throw failure
 				}
+			} else if (restStatusCode == -1 && failure.getMessage.contains("Connection closed")) {
+				LOG.warn(s"Retrying record: ${actionRequest.toString}")
+//				actionRequest match {
+//					case s: UpdateRequest => indexer.add(s)
+//					case s: IndexRequest => indexer.add(s)
+//				}
 			} else {
 				LOG.error(s"ELASTICSEARCH FAILED:\n    statusCode $restStatusCode\n    message: ${failure.getMessage}\n${failure.getStackTrace}")
 				val inner = failure.getCause
 				if (inner != null)
 					LOG.error(s"    INNER:\n    message: ${inner.getMessage}\n${inner.getStackTrace}")
 				LOG.error(s"    DATA:\n    ${actionRequest.toString}")
+				throw failure
 			}
 		}
 	}
@@ -110,7 +121,7 @@ object SdcElasticSearchSink {
 			esSinkBuilder.setBulkFlushInterval(bulkInterval)
 		esSinkBuilder.setBulkFlushBackoff(true)
 		esSinkBuilder.setBulkFlushBackoffType(ElasticsearchSinkBase.FlushBackoffType.EXPONENTIAL)
-		esSinkBuilder.setBulkFlushBackoffDelay(50)
+		esSinkBuilder.setBulkFlushBackoffDelay(200)
 		esSinkBuilder.setBulkFlushBackoffRetries(flushRetries)
 
 		esSinkBuilder.build()
@@ -136,7 +147,7 @@ object SdcElasticSearchSink {
 			esSinkBuilder.setBulkFlushInterval(bulkInterval)
 		esSinkBuilder.setBulkFlushBackoff(true)
 		esSinkBuilder.setBulkFlushBackoffType(ElasticsearchSinkBase.FlushBackoffType.EXPONENTIAL)
-		esSinkBuilder.setBulkFlushBackoffDelay(50)
+		esSinkBuilder.setBulkFlushBackoffDelay(200)
 		esSinkBuilder.setBulkFlushBackoffRetries(flushRetries)
 
 		esSinkBuilder.build()

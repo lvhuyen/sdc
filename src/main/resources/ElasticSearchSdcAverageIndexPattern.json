@@ -1,6 +1,6 @@
 {
 	"order": 0,
-	"template": "copper-sdc-average-prod-*",
+	"template": "sdc-average-prod-*",
 	"mappings": {
 		"_doc": {
 			"dynamic": false,
@@ -64,7 +64,7 @@
 		}
 	},
 	"aliases": {
-		"copper-sdc-average-prod": {}
+		"sdc-average-prod": {}
 	}
 }
-PUT /_template/copper-sdc-average-prod-template
+PUT /_template/sdc-average-prod-template

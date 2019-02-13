@@ -202,7 +202,7 @@ public class ContinuousFileMonitoringFunction<OUT>
 
         if (this.readConsistencyOffset > 10) {
             this.dirScanChunkSizeInSeconds = 900L;
-            this.dirRescanIntervalInSeconds = 8 * dirScanChunkSizeInSeconds;
+            this.dirRescanIntervalInSeconds = 3 * dirScanChunkSizeInSeconds;
             dirWatermark = dirWatermark.plusSeconds(dirRescanIntervalInSeconds);
         } else {
             this.dirScanChunkSizeInSeconds = 0L;
@@ -477,7 +477,14 @@ public class ContinuousFileMonitoringFunction<OUT>
         // This check is to ensure that globalModificationTime will not go backward
         // even if readConsistencyOffset is changed to a large value after a restore from checkpoint,
         // so  files would be processed twice
-        globalModificationTime = Math.max(maxProcessedTime - readConsistencyOffset, globalModificationTime);
+        long currentMaxModificationTime = maxProcessedTime - readConsistencyOffset;
+        if (currentMaxModificationTime > globalModificationTime) {
+            LOG.info("{} has globalModificationTime advanced from {} to {}",
+                    path, globalModificationTime, currentMaxModificationTime);
+            globalModificationTime = currentMaxModificationTime;
+        }
+//        globalModificationTime = Math.max(maxProcessedTime - readConsistencyOffset, globalModificationTime);
+//        LOG.info("{} has current globalModificationTime of {}", path, globalModificationTime);
 
         processedFiles.entrySet().removeIf(item -> item.getValue() <= globalModificationTime);
         for (FileStatus fileStatus: eligibleFiles.values()) {

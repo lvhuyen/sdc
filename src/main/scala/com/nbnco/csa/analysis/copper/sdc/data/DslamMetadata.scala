@@ -6,7 +6,15 @@ import org.apache.avro.generic.IndexedRecord
 /**
   * Created by Huyen on 19/10/18.
   */
-case class DslamMetadata (isInstant: Boolean, name: String, ts: Long, columns: String, relativePath: String, fileTime: Long, processingTime: Long)
+case class DslamMetadata (isInstant: Boolean,
+													name: String,
+													ts: Long,
+													columns: String,
+													relativePath: String,
+													fileTime: Long,
+													processingTime: Long,
+													componentFileTime: Long,
+													recordsCount: Int)
 	extends IndexedRecord with TemporalEvent {
 	override def getSchema: Schema = {
 		DslamMetadata.getSchema()
@@ -19,6 +27,8 @@ case class DslamMetadata (isInstant: Boolean, name: String, ts: Long, columns: S
 			case 3 => relativePath
 			case 4 => fileTime.asInstanceOf[AnyRef]
 			case 5 => processingTime.asInstanceOf[AnyRef]
+			case 6 => componentFileTime.asInstanceOf[AnyRef]
+			case 7 => recordsCount.asInstanceOf[AnyRef]
 		}
 	}
 
@@ -36,6 +46,8 @@ object DslamMetadata {
 			"metricsTime" -> dslam.ts,
 			"fileTime" -> dslam.fileTime,
 			"processingTime" -> dslam.processingTime,
+			"componentFileTime" -> dslam.componentFileTime,
+			"recordsCount" -> dslam.recordsCount,
 			"path" -> dslam.relativePath
 		)
 	}
@@ -50,6 +62,8 @@ object DslamMetadata {
 			.name("relativePath").`type`("string").noDefault()
 			.name("fileTime").`type`("long").noDefault()
 			.name("processingTime").`type`("long").noDefault()
+			.name("componentFileTime").`type`("long").noDefault()
+			.name("recordsCount").`type`("int").noDefault()
 			.endRecord()
 	}
 }

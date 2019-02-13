@@ -62,6 +62,7 @@ object StreamingSdcWithAverageByDslam {
 		val cfgCheckpointInterval = appConfig.getLong("checkpoint.interval", 800000L)
 		val cfgCheckpointTimeout = appConfig.getLong("checkpoint.timeout", 600000L)
 		val cfgCheckpointMinPause = appConfig.getLong("checkpoint.minimum-pause", 600000L)
+		val cfgCheckpointStopJobWhenFail = appConfig.getBoolean("checkpoint.stop-job-when-fail", true)
 
 		val streamEnv =
 			if (cfgCheckpointEnabled) StreamExecutionEnvironment.getExecutionEnvironment
@@ -71,7 +72,7 @@ object StreamingSdcWithAverageByDslam {
 		if (cfgCheckpointEnabled) {
 			streamEnv.getCheckpointConfig.setMinPauseBetweenCheckpoints(cfgCheckpointMinPause)
 			streamEnv.getCheckpointConfig.setCheckpointTimeout(cfgCheckpointTimeout)
-			streamEnv.getCheckpointConfig.setFailOnCheckpointingErrors(false)
+			streamEnv.getCheckpointConfig.setFailOnCheckpointingErrors(cfgCheckpointStopJobWhenFail)
 			streamEnv.getCheckpointConfig.enableExternalizedCheckpoints(ExternalizedCheckpointCleanup.DELETE_ON_CANCELLATION)
 			streamEnv.getCheckpointConfig.setCheckpointingMode(CheckpointingMode.EXACTLY_ONCE)
 		}
@@ -153,7 +154,7 @@ object StreamingSdcWithAverageByDslam {
 		return flsRaw
 	}
 
-	def readHistoricalData(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): (DataStream[DslamRaw[String]], DataStream[SdcRawHistorical]) = {
+	def readHistoricalData(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): (DataStream[DslamMetadata], DataStream[SdcRawHistorical]) = {
 		val cfgSdcHistoricalLocation = appConfig.get("sources.sdc-historical.path", "s3://thor-pr-data-raw-fttx/fttx.sdc.copper.history.combined/")
 		val cfgSdcHistoricalScanInterval = appConfig.getLong("sources.sdc-historical.scan-interval", 10000L)
 		val cfgSdcHistoricalScanConsistency = appConfig.getLong("sources.sdc-historical.scan-consistency-offset", 2000L)
@@ -178,10 +179,11 @@ object StreamingSdcWithAverageByDslam {
 			.uid(OperatorId.SDC_PARSER_HISTORICAL)
 			.name("Parse SDC Historical")
 
-		return (streamDslamHistorical, streamSdcRawHistorical)
+		return (streamDslamHistorical.map(r => r.metadata).uid("Metadata_Extract_Historical"),
+						streamSdcRawHistorical)
 	}
 
-	def readInstantData(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): (DataStream[DslamRaw[String]], DataStream[SdcRawInstant]) = {
+	def readInstantData(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): (DataStream[DslamMetadata], DataStream[SdcRawInstant]) = {
 		val cfgSdcInstantLocation = appConfig.get("sources.sdc-instant.path", "s3://thor-pr-data-raw-fttx/fttx.sdc.copper.history.combined/instant")
 		val cfgSdcInstantScanInterval = appConfig.getLong("sources.sdc-instant.scan-interval", 10000L)
 		val cfgSdcInstantScanConsistency = appConfig.getLong("sources.sdc-instant.scan-consistency-offset", 2000L)
@@ -208,7 +210,8 @@ object StreamingSdcWithAverageByDslam {
 			.filter(r => !r.data.if_admin_status.equalsIgnoreCase("down"))
 			.uid(OperatorId.SDC_PARSER_INSTANT + "_1")
 
-		return (streamDslamInstant, streamSdcRawInstant)
+		return (streamDslamInstant.map(_.metadata).uid("Metadata_Extract_Instant"),
+						streamSdcRawInstant)
 	}
 
 	def main(args: Array[String]) {
@@ -286,13 +289,10 @@ object StreamingSdcWithAverageByDslam {
 //  		.union(readEnrichmentStream(appConfig, streamEnv))
 
 		/** Read SDC streams */
-		val (streamDslamInstant, streamSdcRawInstant) = readInstantData(appConfig, streamEnv)
-		val (streamDslamHistorical, streamSdcRawHistorical) = readHistoricalData(appConfig, streamEnv)
+		val (streamDslamMetadataInstant, streamSdcRawInstant) = readInstantData(appConfig, streamEnv)
+		val (streamDslamMetadataHistorical, streamSdcRawHistorical) = readHistoricalData(appConfig, streamEnv)
 
 		/** Find missing DSLAM */
-		lazy val streamDslamMetadataInstant: DataStream[DslamMetadata] = streamDslamInstant
-				.map(r => r.metadata)
-				.uid("Metadata_Extract_Instant")
 		lazy val streamDslamMissingInstant = streamDslamMetadataInstant
 				.keyBy(_.name)
 				.window(EventTimeSessionWindows.withGap(Time.minutes(2 * cfgRollingAverageSlideInterval)))
@@ -307,9 +307,6 @@ object StreamingSdcWithAverageByDslam {
 //				.uid(OperatorId.STATS_COUNT_INSTANT)
 //				.name("Count Dslam - Instant")
 //
-		lazy val streamDslamMetadataHistorical: DataStream[DslamMetadata] = streamDslamHistorical
-				.map(r => r.metadata)
-				.uid("Metadata_Extract_Historical")
 		lazy val streamDslamMissingHistorical = streamDslamMetadataHistorical
 				.keyBy(_.name)
 				.window(EventTimeSessionWindows.withGap(Time.minutes(2 * cfgRollingAverageSlideInterval)))
@@ -478,7 +475,7 @@ object StreamingSdcWithAverageByDslam {
 				streamDslamMetadataInstant.union(streamDslamMetadataHistorical).addSink(
 					SdcParquetFileSink.buildSinkGeneric[DslamMetadata](DslamMetadata.getSchema(),
 						cfgParquetMetadataPath, cfgParquetPrefix, cfgParquetSuffixFormat))
-					.setParallelism(cfgParquetParallelism)
+					.setParallelism(1)
 					.uid(OperatorId.SINK_PARQUET_METADATA)
 					.name("S3 - Metadata")
 			}

@@ -31,6 +31,6 @@ case class SdcRawHistorical(ts: Long, dslam: String, port: String,
 object SdcRawHistorical extends SdcParser[SdcRawHistorical] {
 	override def parse(ts: Long, dslam: String, port: String, raw: String, ref: Array[Int]): SdcRawHistorical = {
 		val v = raw.split(',')
-		new SdcRawHistorical(ts, dslam, port, SdcDataHistorical(v(ref(0)).toInt, v(ref(1)).toInt, v(ref(2)).toInt, v(ref(3)).toInt, v(ref(4)).toInt, v(ref(5)).toInt, v(ref(6)).toInt, v(ref(7)).toInt, v(ref(8)).toInt))
+		new SdcRawHistorical(ts, dslam, port, SdcDataHistorical(v(ref(0)).toLong, v(ref(1)).toLong, v(ref(2)).toLong, v(ref(3)).toLong, v(ref(4)).toLong, v(ref(5)).toLong, v(ref(6)).toLong, v(ref(7)).toLong, v(ref(8)).toLong))
 	}
 }
