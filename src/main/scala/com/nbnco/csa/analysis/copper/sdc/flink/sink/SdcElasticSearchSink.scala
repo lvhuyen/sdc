@@ -62,47 +62,58 @@ object SdcElasticSearchSink {
 		}
 	}
 
-	private object SdcElasticSearchFailureHandler extends ActionRequestFailureHandler {
+	/**
+		* This class is to handle failure with ElasticSearch. Currently it handle the problem when connection to ES is
+		* interrupted or when there's a version conflict in document.
+		* When a retry-able error happened, the request's version will be increased by @versionIncreaseStep.
+		* For one request, if there have been more than @furtherRetries, then the exception will be thrown
+		*
+		* @param furtherRetries: maximum number of retries
+		*/
+	private class SdcElasticSearchFailureHandler(furtherRetries: Int) extends ActionRequestFailureHandler {
+		val versionIncreaseStep: Int = 100
+		val versionRetryThreshold: Int = furtherRetries * versionIncreaseStep
+
+		@throws[Throwable]
+		private def escalateError(actionRequest: ActionRequest, failure: Throwable, restStatusCode: Int) = {
+			LOG.error(s"ELASTICSEARCH FAILED:\n    statusCode $restStatusCode\n    message: ${failure.getMessage}\n${failure.getStackTrace}")
+			val inner = failure.getCause
+			if (inner != null)
+				LOG.error(s"    INNER:\n    message: ${inner.getMessage}\n${inner.getStackTrace}")
+			LOG.error(s"    DATA:\n    ${actionRequest.toString}")
+			throw failure
+		}
+
 		@throws[Throwable]
 		override def onFailure(actionRequest: ActionRequest, failure: Throwable, restStatusCode: Int, indexer: RequestIndexer): Unit = {
-			if (ExceptionUtils.findThrowable(failure, classOf[EsRejectedExecutionException]) != Optional.empty() ||
-						ExceptionUtils.findThrowable(failure, classOf[ElasticsearchParseException]) != Optional.empty()) {
-				// full queue or malformed document
-				LOG.warn("Failed inserting record to ElasticSearch: statusCode {} message: {} record: {} stacktrace {}.\nRetrying",
-					restStatusCode.toString, failure.getMessage, actionRequest.toString, failure.getStackTrace)
-				actionRequest match {
-					case s: UpdateRequest => indexer.add(s)
-					case s: IndexRequest => indexer.add(s)
-					case _ =>
-				}
-			} else if (ExceptionUtils.findThrowableWithMessage(failure, "version_conflict_engine_exception") != Optional.empty()) {
-				actionRequest match {
-					case s: UpdateRequest =>
-						LOG.warn(s"Failed inserting record to ElasticSearch due to version conflict (${s.version()}).")
-						LOG.warn(actionRequest.toString)
-					case _ =>
-						LOG.warn("Failed inserting record to ElasticSearch due to version conflict. However, this is not an Update-Request. Don't know why.")
-						LOG.warn(actionRequest.toString)
-						throw failure
-				}
-			} else if (restStatusCode == -1 && failure.getMessage.contains("Connection closed")) {
-				LOG.warn(s"Retrying record: ${actionRequest.toString}")
-//				actionRequest match {
-//					case s: UpdateRequest => indexer.add(s)
-//					case s: IndexRequest => indexer.add(s)
-//				}
-			} else {
-				LOG.error(s"ELASTICSEARCH FAILED:\n    statusCode $restStatusCode\n    message: ${failure.getMessage}\n${failure.getStackTrace}")
-				val inner = failure.getCause
-				if (inner != null)
-					LOG.error(s"    INNER:\n    message: ${inner.getMessage}\n${inner.getStackTrace}")
-				LOG.error(s"    DATA:\n    ${actionRequest.toString}")
-				throw failure
+			actionRequest match {
+				case s: UpdateRequest =>
+					if (s.version() < versionRetryThreshold &&
+						(ExceptionUtils.findThrowable(failure, classOf[EsRejectedExecutionException]) != Optional.empty()
+							|| ExceptionUtils.findThrowableWithMessage(failure, "version_conflict_engine_exception") != Optional.empty()
+							|| (restStatusCode == -1 && failure != null & failure.getMessage.contains("Connection closed")))) {
+						LOG.info(s"Failed updating document in ElasticSearch with error message '${failure.getMessage}'. Retrying: ${actionRequest.toString}")
+						indexer.add(s.version(s.version() + versionIncreaseStep))
+					} else
+						escalateError(actionRequest, failure, restStatusCode)
+
+				case s: IndexRequest =>
+					if (s.version() < versionRetryThreshold &&
+						(ExceptionUtils.findThrowable(failure, classOf[EsRejectedExecutionException]) != Optional.empty()
+							|| (restStatusCode == -1 && failure != null & failure.getMessage.contains("Connection closed")))) {
+						LOG.info(s"Failed inserting document to ElasticSearch with error message '${failure.getMessage}'. Retrying: ${actionRequest.toString}")
+						indexer.add(s.version(s.version() + versionIncreaseStep))
+					} else
+						escalateError(actionRequest, failure, restStatusCode)
+
+				case _ => escalateError(actionRequest, failure, restStatusCode)
 			}
 		}
 	}
 
-	def createUpdatableSdcElasticSearchSink[T <: SdcRecord](endpoint: String, indexNamePrefix: String, bulkSize: Int, bulkInterval: Int, flushRetries: Int) = {
+	def createUpdatableSdcElasticSearchSink[T <: SdcRecord](endpoint: String, indexNamePrefix: String,
+																													bulkSize: Int, bulkInterval: Int, flushBackoffDelay: Int,
+																													retriesOnError: Int) = {
 		val httpHosts = new java.util.ArrayList[HttpHost]
 		httpHosts.add(new HttpHost(endpoint, 443, "https"))
 
@@ -114,22 +125,22 @@ object SdcElasticSearchSink {
 			)
 		)
 
-		esSinkBuilder.setFailureHandler(SdcElasticSearchFailureHandler)
+		esSinkBuilder.setFailureHandler(new SdcElasticSearchFailureHandler(retriesOnError))
 		if (bulkSize > 0)
 			esSinkBuilder.setBulkFlushMaxSizeMb(bulkSize)
 		if (bulkInterval > 0)
 			esSinkBuilder.setBulkFlushInterval(bulkInterval)
 		esSinkBuilder.setBulkFlushBackoff(true)
 		esSinkBuilder.setBulkFlushBackoffType(ElasticsearchSinkBase.FlushBackoffType.EXPONENTIAL)
-		esSinkBuilder.setBulkFlushBackoffDelay(200)
-		esSinkBuilder.setBulkFlushBackoffRetries(flushRetries)
+		esSinkBuilder.setBulkFlushBackoffDelay(flushBackoffDelay)
 
 		esSinkBuilder.build()
 	}
 
 	def createElasticSearchSink[T](endpoint: String, indexNameBuilder: T => String,
-																									dataBuilder: T => Map[String, Any], docIdBuilder: T => String,
-																									bulkInterval: Int, flushRetries: Int) = {
+																 dataBuilder: T => Map[String, Any], docIdBuilder: T => String,
+																 bulkInterval: Int, flushBackoffDelay: Int,
+																 retriesOnError: Int) = {
 		val httpHosts = new java.util.ArrayList[HttpHost]
 		httpHosts.add(new HttpHost(endpoint, 443, "https"))
 
@@ -141,14 +152,13 @@ object SdcElasticSearchSink {
 			)
 		)
 
-		esSinkBuilder.setFailureHandler(SdcElasticSearchFailureHandler)
+		esSinkBuilder.setFailureHandler(new SdcElasticSearchFailureHandler(retriesOnError))
 		esSinkBuilder.setBulkFlushMaxSizeMb(10)
 		if (bulkInterval > 0)
 			esSinkBuilder.setBulkFlushInterval(bulkInterval)
 		esSinkBuilder.setBulkFlushBackoff(true)
 		esSinkBuilder.setBulkFlushBackoffType(ElasticsearchSinkBase.FlushBackoffType.EXPONENTIAL)
-		esSinkBuilder.setBulkFlushBackoffDelay(200)
-		esSinkBuilder.setBulkFlushBackoffRetries(flushRetries)
+		esSinkBuilder.setBulkFlushBackoffDelay(flushBackoffDelay)
 
 		esSinkBuilder.build()
 	}

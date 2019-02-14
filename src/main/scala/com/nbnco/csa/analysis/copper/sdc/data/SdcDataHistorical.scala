@@ -4,14 +4,15 @@ package com.nbnco.csa.analysis.copper.sdc.data
   * Created by Huyen on 30/9/18.
   *
   * @param ses          xdslLinePreviousIntervalSESCounter
-  * @param uas          xdslLinePreviousIntervalUASCounter
-  * @param lprFe        xdslFarEndLinePreviousIntervalLPRCounter
+  * @param uas          xdslLinePreviousIntervalUASCounter					// UAS = UnAvailable Seconds
+  * @param lprFe        xdslFarEndLinePreviousIntervalLPRCounter		//LPR = Lost of Power
   * @param sesFe        xdslFarEndLinePreviousIntervalSESCounter
   * @param unCorrDtuDs  xdslFarEndChannelPreviousIntervalUnCorrDtuCounterDS
   * @param unCorrDtuUs  xdslChannelPreviousIntervalUnCorrDtuCounterUS
   * @param reInit       xdslLinePreviousIntervalReInitCounter
   * @param reTransUs    xdslFarEndChannelPreviousIntervalRetransmDtuCounterUS
   * @param reTransDs    xdslChannelPreviousIntervalRetransmDtuCounterDS
+	*                     Drop-out = reInit = LPR
   */
 case class SdcDataHistorical(var ses: Long,
                              var uas: Long,

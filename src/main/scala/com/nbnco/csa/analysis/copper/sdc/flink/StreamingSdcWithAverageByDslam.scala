@@ -73,7 +73,7 @@ object StreamingSdcWithAverageByDslam {
 			streamEnv.getCheckpointConfig.setMinPauseBetweenCheckpoints(cfgCheckpointMinPause)
 			streamEnv.getCheckpointConfig.setCheckpointTimeout(cfgCheckpointTimeout)
 			streamEnv.getCheckpointConfig.setFailOnCheckpointingErrors(cfgCheckpointStopJobWhenFail)
-			streamEnv.getCheckpointConfig.enableExternalizedCheckpoints(ExternalizedCheckpointCleanup.DELETE_ON_CANCELLATION)
+			streamEnv.getCheckpointConfig.enableExternalizedCheckpoints(ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION)
 			streamEnv.getCheckpointConfig.setCheckpointingMode(CheckpointingMode.EXACTLY_ONCE)
 		}
 		streamEnv.getConfig.setTaskCancellationInterval(cfgTaskTimeoutInterval)
@@ -224,29 +224,11 @@ object StreamingSdcWithAverageByDslam {
 		val appConfig = ParameterTool.fromPropertiesFile(fs.open(new Path(configFile)))
 		val debug = appConfig.getBoolean("debug", false)
 
-		val cfgParallelism = appConfig.getInt("parallelism", 32)
-		val cfgTaskTimeoutInterval = appConfig.getLong("task-timeout-interval", 30000)
-
-		val cfgCheckpointEnabled = appConfig.getBoolean("checkpoint.enabled", true)
-		val cfgCheckpointLocation = appConfig.get("checkpoint.path", "s3://assn-csa-prod-telemetry-data-lake/TestData/Spike/Huyen/SDC/ckpoint/")
-		val cfgCheckpointInterval = appConfig.getLong("checkpoint.interval", 800000L)
-		val cfgCheckpointTimeout = appConfig.getLong("checkpoint.timeout", 600000L)
-		val cfgCheckpointMinPause = appConfig.getLong("checkpoint.minimum-pause", 600000L)
-
-		val cfgSdcHistoricalLocation = appConfig.get("sources.sdc-historical.path", "s3://thor-pr-data-raw-fttx/fttx.sdc.copper.history.combined/")
-		val cfgSdcHistoricalScanInterval = appConfig.getLong("sources.sdc-historical.scan-interval", 10000L)
-		val cfgSdcHistoricalScanConsistency = appConfig.getLong("sources.sdc-historical.scan-consistency-offset", 2000L)
-		val cfgSdcHistoricalIgnore = appConfig.getLong("sources.sdc-historical.ignore-files-older-than-minutes", 10000) * 60 * 1000
-
-		val cfgSdcInstantLocation = appConfig.get("sources.sdc-instant.path", "s3://thor-pr-data-raw-fttx/fttx.sdc.copper.history.combined/instant")
-		val cfgSdcInstantScanInterval = appConfig.getLong("sources.sdc-instant.scan-interval", 10000L)
-		val cfgSdcInstantScanConsistency = appConfig.getLong("sources.sdc-instant.scan-consistency-offset", 2000L)
-		val cfgSdcInstantIgnore = appConfig.getLong("sources.sdc-instant.ignore-files-older-than-minutes", 10000) * 60 * 1000
-
 		val cfgElasticSearchEndpoint = appConfig.get("sink.elasticsearch.endpoint", "vpc-assn-dev-chronos-devops-pmwehr2e7xujnadk53jsx4bjne.ap-southeast-2.es.amazonaws.com")
 		val cfgElasticSearchBulkInterval = appConfig.getInt("sink.elasticsearch.bulk-interval-ms", 60000)
 		val cfgElasticSearchBulkSize = appConfig.getInt("sink.elasticsearch.bulk-size-mb", 10)
-		val cfgElasticSearchRetries = appConfig.getInt("sink.elasticsearch.retries-on-failure", 8)
+		val cfgElasticSearchBackoffDelay = appConfig.getInt("sink.elasticsearch.bulk-flush-backoff-delay-ms", 100)
+		val cfgElasticSearchRetries = appConfig.getInt("sink.elasticsearch.retries-on-failure", 3)
 
 		val cfgElasticSearchCombinedSdcEnabled = appConfig.getBoolean("sink.elasticsearch.sdc.enabled", false)
 		val cfgElasticSearchCombinedSdcIndexName = appConfig.get("sink.elasticsearch.sdc.index-name", "copper-sdc-combined-default")
@@ -414,6 +396,7 @@ object StreamingSdcWithAverageByDslam {
 							cfgElasticSearchCombinedSdcIndexName,
 							cfgElasticSearchBulkSize,
 							cfgElasticSearchBulkInterval,
+							cfgElasticSearchBackoffDelay,
 							cfgElasticSearchRetries))
 						.setParallelism(cfgElasticSearchCombinedSdcParallelism)
 						.uid(OperatorId.SINK_ELASTIC_COMBINED)
@@ -427,7 +410,8 @@ object StreamingSdcWithAverageByDslam {
 						r => r.toMap,
 						r => s"${r.dslam}_${r.port}",
 						cfgElasticSearchBulkInterval,
-						cfgElasticSearchRetries))
+						cfgElasticSearchBackoffDelay,
+						cfgElasticSearchRetries * 2))
 					.setParallelism(cfgElasticSearchEnrichmentParallelism)
 					.uid(OperatorId.SINK_ELASTIC_ENRICHMENT)
 					.name("ES - Enrichment")
@@ -452,6 +436,7 @@ object StreamingSdcWithAverageByDslam {
 						r => r.toMap,
 						r => s"${r.dslam}_${r.port}_${r.ts}",
 						cfgElasticSearchBulkInterval,
+						cfgElasticSearchBackoffDelay,
 						cfgElasticSearchRetries))
 					.setParallelism(cfgElasticSearchAverageParallelism)
 					.uid(OperatorId.SINK_ELASTIC_AVERAGE)
@@ -487,7 +472,9 @@ object StreamingSdcWithAverageByDslam {
 							r => s"${cfgElasticSearchStatsDslamMetaIndexName}_${SdcElasticSearchSink.MONTHLY_INDEX_SUFFIX_FORMATTER.format(Instant.ofEpochMilli(r.ts))}",
 							DslamMetadata.toMap,
 							r => s"${if (r.isInstant) "I" else "H"}_${r.name}_${r.ts}",
-							cfgElasticSearchBulkInterval, cfgElasticSearchRetries))
+							cfgElasticSearchBulkInterval,
+							cfgElasticSearchBackoffDelay,
+							cfgElasticSearchRetries * 2))
 						.setParallelism(1)
 						.uid(OperatorId.SINK_ELASTIC_METADATA)
 						.name("ES - DSLAM Info")
@@ -498,7 +485,9 @@ object StreamingSdcWithAverageByDslam {
 							r => s"${cfgElasticSearchStatsMissingInstantIndexName}_${SdcElasticSearchSink.MONTHLY_INDEX_SUFFIX_FORMATTER.format(Instant.ofEpochMilli(r._1))}",
 							r => Map("metrics_timestamp" -> (r._1 + cfgRollingAverageSlideInterval * 60L * 1000L), "dslam" -> r._2),
 							r => s"I_${r._2}_${r._1}",
-							cfgElasticSearchBulkInterval, cfgElasticSearchRetries))
+							cfgElasticSearchBulkInterval,
+							cfgElasticSearchBackoffDelay,
+							cfgElasticSearchRetries * 2))
 						.setParallelism(1)
 						.uid(OperatorId.SINK_ELASTIC_MISSING_I)
 						.name("ES - Missing DSLAM - Instant")
@@ -509,7 +498,9 @@ object StreamingSdcWithAverageByDslam {
 							r => s"${cfgElasticSearchStatsMissingHistoricalIndexName}_${SdcElasticSearchSink.MONTHLY_INDEX_SUFFIX_FORMATTER.format(Instant.ofEpochMilli(r._1))}",
 							r => Map("metrics_timestamp" -> (r._1 + cfgRollingAverageSlideInterval * 60L * 1000L), "dslam" -> r._2),
 							r => s"H_${r._2}_${r._1}",
-							cfgElasticSearchBulkInterval, cfgElasticSearchRetries))
+							cfgElasticSearchBulkInterval,
+							cfgElasticSearchBackoffDelay,
+							cfgElasticSearchRetries * 2))
 						.setParallelism(1)
 						.uid(OperatorId.SINK_ELASTIC_MISSING_H)
 						.name("ES - Missing DSLAM - Historical")
