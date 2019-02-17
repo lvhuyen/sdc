@@ -36,6 +36,8 @@ object SdcElasticSearchSink {
 	val DAILY_INDEX = 3
 	val MONTHLY_INDEX = 4
 
+	val NINE_MINUTES_IN_MILLIS = 9 * 60 * 1000L
+
 	private class InsertDataSinkFunction[T] (indexNameBuilder: (T) => String, dataBuilder: (T) => Map[String, Any], idBuilder: T => String)
 			extends ElasticsearchSinkFunction[T] {
 		def createIndexRequest(element: T): IndexRequest = {
@@ -54,7 +56,7 @@ object SdcElasticSearchSink {
 			new UpdateRequest(indexNameBuilder(element), INDEX_TYPE, idBuilder(element))
 					.doc(data)
 					.docAsUpsert(true)
-	  			.retryOnConflict(2)
+	  			.retryOnConflict(3)
 	  			.detectNoop(false)
 		}
 		override def process(element: T, runtimeContext: RuntimeContext, requestIndexer: RequestIndexer): Unit = {
@@ -62,47 +64,67 @@ object SdcElasticSearchSink {
 		}
 	}
 
-	/**
+	/***
 		* This class is to handle failure with ElasticSearch. Currently it handle the problem when connection to ES is
 		* interrupted or when there's a version conflict in document.
 		* When a retry-able error happened, the request's version will be increased by @versionIncreaseStep.
-		* For one request, if there have been more than @furtherRetries, then the exception will be thrown
+		* For one request, if there have been more than @maxRetriesInNineMinutes, then the exception will be thrown
 		*
-		* @param furtherRetries: maximum number of retries
+		* @param maxRetriesInNineMinutes: maximum number of retries
 		*/
-	private class SdcElasticSearchFailureHandler(furtherRetries: Int) extends ActionRequestFailureHandler {
-		val versionIncreaseStep: Int = 100
-		val versionRetryThreshold: Int = furtherRetries * versionIncreaseStep
+	private class SdcElasticSearchFailureHandler(maxRetriesInNineMinutes: Int) extends ActionRequestFailureHandler {
+		var currentRetriesCount: Int = 0
+		var mostRecentRetriesCountReset: Long = Long.MinValue
 
 		@throws[Throwable]
 		private def escalateError(actionRequest: ActionRequest, failure: Throwable, restStatusCode: Int) = {
-			LOG.error(s"ELASTICSEARCH FAILED:\n    statusCode $restStatusCode\n    message: ${failure.getMessage}\n${failure.getStackTrace}")
+			LOG.error(s"ELASTICSEARCH FAILED:\n\tstatusCode $restStatusCode\n\tmessage: ${failure.getMessage}\n${failure.getStackTrace}")
 			val inner = failure.getCause
 			if (inner != null)
-				LOG.error(s"    INNER:\n    message: ${inner.getMessage}\n${inner.getStackTrace}")
-			LOG.error(s"    DATA:\n    ${actionRequest.toString}")
+				LOG.error(s"\tINNER:\n    message: ${inner.getMessage}\n${inner.getStackTrace}")
+			LOG.error(s"\tDATA:\n    ${actionRequest.toString}")
 			throw failure
 		}
 
+		/***
+			* This function counts the number of recoverable errors in the last 9 minutes. If that is lower than the predefined
+			* threshold then it returns true.
+			* @return: true = to retry, false = to give up.
+			*/
+		private def shouldRetry(): Boolean = {
+			val now = System.currentTimeMillis
+			if (mostRecentRetriesCountReset < now - NINE_MINUTES_IN_MILLIS) {
+				LOG.info("Starting the 9-minutes timer...")
+				mostRecentRetriesCountReset = now
+				currentRetriesCount = 0
+			}
+			currentRetriesCount += 1
+			currentRetriesCount < maxRetriesInNineMinutes
+		}
+
+		/***
+			* On error, if that is an UpdateRequest and the error is versionConflict, then just retry blindly
+			* If the error is ConnectionClosed, then check the number of errors in the last 9 minutes with the threshold
+			*/
 		@throws[Throwable]
 		override def onFailure(actionRequest: ActionRequest, failure: Throwable, restStatusCode: Int, indexer: RequestIndexer): Unit = {
 			actionRequest match {
 				case s: UpdateRequest =>
-					if (s.version() < versionRetryThreshold &&
-						(ExceptionUtils.findThrowable(failure, classOf[EsRejectedExecutionException]) != Optional.empty()
-							|| ExceptionUtils.findThrowableWithMessage(failure, "version_conflict_engine_exception") != Optional.empty()
-							|| (restStatusCode == -1 && failure != null & failure.getMessage.contains("Connection closed")))) {
+					if (ExceptionUtils.findThrowableWithMessage(failure, "version conflict") != Optional.empty()
+						|| ExceptionUtils.findThrowable(failure, classOf[EsRejectedExecutionException]) != Optional.empty())
+						indexer.add(s)
+					else if (((restStatusCode == -1) && (failure != null) && failure.getMessage.contains("Connection closed")) && shouldRetry()) {
 						LOG.info(s"Failed updating document in ElasticSearch with error message '${failure.getMessage}'. Retrying: ${actionRequest.toString}")
-						indexer.add(s.version(s.version() + versionIncreaseStep))
+						indexer.add(s.retryOnConflict(0))
 					} else
 						escalateError(actionRequest, failure, restStatusCode)
 
 				case s: IndexRequest =>
-					if (s.version() < versionRetryThreshold &&
-						(ExceptionUtils.findThrowable(failure, classOf[EsRejectedExecutionException]) != Optional.empty()
-							|| (restStatusCode == -1 && failure != null & failure.getMessage.contains("Connection closed")))) {
+					if ((ExceptionUtils.findThrowable(failure, classOf[EsRejectedExecutionException]) != Optional.empty()
+							|| ((restStatusCode == -1) && (failure != null) && failure.getMessage.contains("Connection closed")))
+						&& shouldRetry()) {
 						LOG.info(s"Failed inserting document to ElasticSearch with error message '${failure.getMessage}'. Retrying: ${actionRequest.toString}")
-						indexer.add(s.version(s.version() + versionIncreaseStep))
+						indexer.add(s)
 					} else
 						escalateError(actionRequest, failure, restStatusCode)
 
@@ -112,8 +134,9 @@ object SdcElasticSearchSink {
 	}
 
 	def createUpdatableSdcElasticSearchSink[T <: SdcRecord](endpoint: String, indexNamePrefix: String,
-																													bulkSize: Int, bulkInterval: Int, flushBackoffDelay: Int,
-																													retriesOnError: Int) = {
+																													bulkActions: Int, bulkSize: Int, bulkInterval: Int,
+																													flushBackoffDelay: Int,
+																													maxRetriesInNineMinutes: Int) = {
 		val httpHosts = new java.util.ArrayList[HttpHost]
 		httpHosts.add(new HttpHost(endpoint, 443, "https"))
 
@@ -125,9 +148,9 @@ object SdcElasticSearchSink {
 			)
 		)
 
-		esSinkBuilder.setFailureHandler(new SdcElasticSearchFailureHandler(retriesOnError))
-		if (bulkSize > 0)
-			esSinkBuilder.setBulkFlushMaxSizeMb(bulkSize)
+		esSinkBuilder.setFailureHandler(new SdcElasticSearchFailureHandler(maxRetriesInNineMinutes))
+		esSinkBuilder.setBulkFlushMaxSizeMb(bulkSize)
+		esSinkBuilder.setBulkFlushMaxActions(bulkActions)
 		if (bulkInterval > 0)
 			esSinkBuilder.setBulkFlushInterval(bulkInterval)
 		esSinkBuilder.setBulkFlushBackoff(true)
@@ -139,8 +162,8 @@ object SdcElasticSearchSink {
 
 	def createElasticSearchSink[T](endpoint: String, indexNameBuilder: T => String,
 																 dataBuilder: T => Map[String, Any], docIdBuilder: T => String,
-																 bulkInterval: Int, flushBackoffDelay: Int,
-																 retriesOnError: Int) = {
+																 bulkActions: Int, bulkSize: Int, bulkInterval: Int,
+																 flushBackoffDelay: Int, maxRetriesInNineMinutes: Int) = {
 		val httpHosts = new java.util.ArrayList[HttpHost]
 		httpHosts.add(new HttpHost(endpoint, 443, "https"))
 
@@ -152,8 +175,9 @@ object SdcElasticSearchSink {
 			)
 		)
 
-		esSinkBuilder.setFailureHandler(new SdcElasticSearchFailureHandler(retriesOnError))
-		esSinkBuilder.setBulkFlushMaxSizeMb(10)
+		esSinkBuilder.setFailureHandler(new SdcElasticSearchFailureHandler(maxRetriesInNineMinutes))
+		esSinkBuilder.setBulkFlushMaxSizeMb(bulkSize)
+		esSinkBuilder.setBulkFlushMaxActions(bulkActions)
 		if (bulkInterval > 0)
 			esSinkBuilder.setBulkFlushInterval(bulkInterval)
 		esSinkBuilder.setBulkFlushBackoff(true)

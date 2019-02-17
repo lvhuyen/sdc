@@ -225,10 +225,11 @@ object StreamingSdcWithAverageByDslam {
 		val debug = appConfig.getBoolean("debug", false)
 
 		val cfgElasticSearchEndpoint = appConfig.get("sink.elasticsearch.endpoint", "vpc-assn-dev-chronos-devops-pmwehr2e7xujnadk53jsx4bjne.ap-southeast-2.es.amazonaws.com")
-		val cfgElasticSearchBulkInterval = appConfig.getInt("sink.elasticsearch.bulk-interval-ms", 60000)
+		val cfgElasticSearchBulkActions = appConfig.getInt("sink.elasticsearch.bulk-actions", 10000)
 		val cfgElasticSearchBulkSize = appConfig.getInt("sink.elasticsearch.bulk-size-mb", 10)
+		val cfgElasticSearchMaxRetries = appConfig.getInt("sink.elasticsearch.max-retries-in-nine-minutes", 3 * cfgElasticSearchBulkActions)
+		val cfgElasticSearchBulkInterval = appConfig.getInt("sink.elasticsearch.bulk-interval-ms", 60000)
 		val cfgElasticSearchBackoffDelay = appConfig.getInt("sink.elasticsearch.bulk-flush-backoff-delay-ms", 100)
-		val cfgElasticSearchRetries = appConfig.getInt("sink.elasticsearch.retries-on-failure", 3)
 
 		val cfgElasticSearchCombinedSdcEnabled = appConfig.getBoolean("sink.elasticsearch.sdc.enabled", false)
 		val cfgElasticSearchCombinedSdcIndexName = appConfig.get("sink.elasticsearch.sdc.index-name", "copper-sdc-combined-default")
@@ -381,7 +382,7 @@ object StreamingSdcWithAverageByDslam {
 //					.addSink(SdcElasticSearchSink.createSink[SdcEnriched](cfgElasticSearchEndpoint,
 //						cfgElasticSearchCombinedSdcIndexName,
 //						cfgElasticSearchBulkInterval,
-//						cfgElasticSearchRetries))
+//						cfgElasticSearchMaxRetries))
 //					.uid(OperatorId.SINK_ELASTIC_COMBINED)
 //			streamEnrichedInstant.print()
 //			averageInstant.print()
@@ -394,10 +395,11 @@ object StreamingSdcWithAverageByDslam {
 						.addSink(SdcElasticSearchSink.createUpdatableSdcElasticSearchSink[SdcEnrichedBase](
 							cfgElasticSearchEndpoint,
 							cfgElasticSearchCombinedSdcIndexName,
+							cfgElasticSearchBulkActions,
 							cfgElasticSearchBulkSize,
 							cfgElasticSearchBulkInterval,
 							cfgElasticSearchBackoffDelay,
-							cfgElasticSearchRetries))
+							cfgElasticSearchMaxRetries))
 						.setParallelism(cfgElasticSearchCombinedSdcParallelism)
 						.uid(OperatorId.SINK_ELASTIC_COMBINED)
 						.name("ES - Combined")
@@ -409,9 +411,11 @@ object StreamingSdcWithAverageByDslam {
 						r => cfgElasticSearchEnrichmentIndexName,
 						r => r.toMap,
 						r => s"${r.dslam}_${r.port}",
+						cfgElasticSearchBulkActions,
+						cfgElasticSearchBulkSize,
 						cfgElasticSearchBulkInterval,
 						cfgElasticSearchBackoffDelay,
-						cfgElasticSearchRetries * 2))
+						cfgElasticSearchMaxRetries))
 					.setParallelism(cfgElasticSearchEnrichmentParallelism)
 					.uid(OperatorId.SINK_ELASTIC_ENRICHMENT)
 					.name("ES - Enrichment")
@@ -422,7 +426,7 @@ object StreamingSdcWithAverageByDslam {
 //						cfgElasticSearchEndpoint,
 //						cfgElasticSearchUnenrichableIndexName,
 //						cfgElasticSearchBulkInterval,
-//						cfgElasticSearchRetries,
+//						cfgElasticSearchMaxRetries,
 //						SdcElasticSearchSink.DAILY_INDEX))
 //					.setParallelism(cfgElasticSearchUnenrichableParallelism)
 //					.uid(OperatorId.SINK_ELASTIC_UNENRICHABLE)
@@ -435,9 +439,11 @@ object StreamingSdcWithAverageByDslam {
 						r => s"${cfgElasticSearchAverageIndexName}_${SdcElasticSearchSink.DAILY_INDEX_SUFFIX_FORMATTER.format(Instant.ofEpochMilli(r.ts))}",
 						r => r.toMap,
 						r => s"${r.dslam}_${r.port}_${r.ts}",
+						cfgElasticSearchBulkActions,
+						cfgElasticSearchBulkSize,
 						cfgElasticSearchBulkInterval,
 						cfgElasticSearchBackoffDelay,
-						cfgElasticSearchRetries))
+						cfgElasticSearchMaxRetries))
 					.setParallelism(cfgElasticSearchAverageParallelism)
 					.uid(OperatorId.SINK_ELASTIC_AVERAGE)
 					.name("ES - Rolling Average")
@@ -472,9 +478,11 @@ object StreamingSdcWithAverageByDslam {
 							r => s"${cfgElasticSearchStatsDslamMetaIndexName}_${SdcElasticSearchSink.MONTHLY_INDEX_SUFFIX_FORMATTER.format(Instant.ofEpochMilli(r.ts))}",
 							DslamMetadata.toMap,
 							r => s"${if (r.isInstant) "I" else "H"}_${r.name}_${r.ts}",
+							1000,
+							5,
 							cfgElasticSearchBulkInterval,
 							cfgElasticSearchBackoffDelay,
-							cfgElasticSearchRetries * 2))
+							3000))
 						.setParallelism(1)
 						.uid(OperatorId.SINK_ELASTIC_METADATA)
 						.name("ES - DSLAM Info")
@@ -485,9 +493,11 @@ object StreamingSdcWithAverageByDslam {
 							r => s"${cfgElasticSearchStatsMissingInstantIndexName}_${SdcElasticSearchSink.MONTHLY_INDEX_SUFFIX_FORMATTER.format(Instant.ofEpochMilli(r._1))}",
 							r => Map("metrics_timestamp" -> (r._1 + cfgRollingAverageSlideInterval * 60L * 1000L), "dslam" -> r._2),
 							r => s"I_${r._2}_${r._1}",
+							1000,
+							5,
 							cfgElasticSearchBulkInterval,
 							cfgElasticSearchBackoffDelay,
-							cfgElasticSearchRetries * 2))
+							3000))
 						.setParallelism(1)
 						.uid(OperatorId.SINK_ELASTIC_MISSING_I)
 						.name("ES - Missing DSLAM - Instant")
@@ -498,9 +508,11 @@ object StreamingSdcWithAverageByDslam {
 							r => s"${cfgElasticSearchStatsMissingHistoricalIndexName}_${SdcElasticSearchSink.MONTHLY_INDEX_SUFFIX_FORMATTER.format(Instant.ofEpochMilli(r._1))}",
 							r => Map("metrics_timestamp" -> (r._1 + cfgRollingAverageSlideInterval * 60L * 1000L), "dslam" -> r._2),
 							r => s"H_${r._2}_${r._1}",
+							1000,
+							5,
 							cfgElasticSearchBulkInterval,
 							cfgElasticSearchBackoffDelay,
-							cfgElasticSearchRetries * 2))
+							3000))
 						.setParallelism(1)
 						.uid(OperatorId.SINK_ELASTIC_MISSING_H)
 						.name("ES - Missing DSLAM - Historical")
@@ -508,13 +520,13 @@ object StreamingSdcWithAverageByDslam {
 				//				streamDslamCountInstant.addSink(SdcElasticSearchSink.createSingleIndexSink[(Long, Int)](
 				//					cfgElasticSearchEndpoint, "copper-sdc-count-instant",
 				//					r => Map("metrics_timestamp" -> r._1, "measurements_count" -> r._2),
-				//					cfgElasticSearchBulkInterval, cfgElasticSearchRetries)
+				//					cfgElasticSearchBulkInterval, cfgElasticSearchMaxRetries)
 				//				).setParallelism(1).name("ES - DSLAM count - Instant")
 				//
 				//				streamDslamCountHistorical.addSink(SdcElasticSearchSink.createSingleIndexSink[(Long, Int)](
 				//					cfgElasticSearchEndpoint, "copper-sdc-count-historical",
 				//					r => Map("metrics_timestamp" -> r._1, "measurements_count" -> r._2),
-				//					cfgElasticSearchBulkInterval, cfgElasticSearchRetries)
+				//					cfgElasticSearchBulkInterval, cfgElasticSearchMaxRetries)
 				//				).setParallelism(1).name("ES - DSLAM count - Historical")
 				//
 			}
