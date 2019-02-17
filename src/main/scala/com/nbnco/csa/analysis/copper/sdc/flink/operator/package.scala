@@ -15,6 +15,6 @@ package object operator {
 
 	class DslamRecordTimeAssigner[T]
 			extends BoundedOutOfOrdernessTimestampExtractor[DslamRaw[T]](Time.seconds(0)) {
-		override def extractTimestamp(r: DslamRaw[T]): Long = r.metadata.metricsTime
+		override def extractTimestamp(r: DslamRaw[T]): Long = r.metadata.ts
 	}
 }

@@ -28,12 +28,17 @@ object ParseSdcRecord {
 }
 
 class ParseSdcRecord[OutType <: SdcRawBase : SdcParser] extends RichFlatMapFunction[DslamRaw[String], OutType] {
-	private def findPattern(rawPort: String): Option[Regex] = {
+	/***
+		* This function finds the pattern of ports.
+		* @param rawPort
+		* @return: the regex to parse the port
+		*/
+	private def findPattern(rawPort: String): Option[(Regex, (String, String, String, String) => String)] = {
 		for(i <- PORT_PATTERNS.indices) {
-			val regex = PORT_PATTERNS(i)
+			val regex = PORT_PATTERNS(i)._1
 			rawPort match {
 				case regex(_, _, _, _) =>
-					return Some(regex)
+					return Some(PORT_PATTERNS(i))
 				case _ =>
 			}
 		}
@@ -65,61 +70,46 @@ class ParseSdcRecord[OutType <: SdcRawBase : SdcParser] extends RichFlatMapFunct
 	}
 
 	override def flatMap(in: DslamRaw[String], collector: Collector[OutType]): Unit = {
-		val actual_cols = in.metadata.columns.split(",")
-		val indices = Array.tabulate(actual_cols.length) { i => (actual_cols(i), i) }.toMap
+		if (in.data.nonEmpty) {
+			val actual_cols = in.metadata.columns.split(",")
+			val indices = Array.tabulate(actual_cols.length) { i => (actual_cols(i), i) }.toMap
 
-		val (ref, records_cnt, files_cnt) =
-			if (in.metadata.isInstant) {
-				(ParseSdcRecord.INSTANT_REF_HEADER_COLUMNS.map(indices(_)),
+			val (ref, records_cnt, files_cnt) =
+				if (in.metadata.isInstant) {
+					(ParseSdcRecord.INSTANT_REF_HEADER_COLUMNS.map(indices(_)),
 						ParseSdcRecord.INSTANT_BAD_RECORDS_COUNT,
 						ParseSdcRecord.INSTANT_BAD_FILES_COUNT)
-			}
-			else {
-				(ParseSdcRecord.HISTORICAL_REF_HEADER_COLUMNS.map(indices(_)),
+				}
+				else {
+					(ParseSdcRecord.HISTORICAL_REF_HEADER_COLUMNS.map(indices(_)),
 						ParseSdcRecord.HISTORICAL_BAD_RECORDS_COUNT,
 						ParseSdcRecord.HISTORICAL_BAD_FILES_COUNT)
-			}
+				}
 
 
-		findPattern(in.data.head._1) match {
-			case Some(regex) =>
-				in.data.foreach(pair =>
-					try {
-						val port = pair._1 match {
-							case regex(r, s, lt, p) => s"R$r.S$s.LT$lt.P$p"
-							case _ => throw new InvalidPortFormatException
+			findPattern(in.data.head._1) match {
+				case Some((regex, func)) =>
+					in.data.foreach(pair =>
+						try {
+							val port = pair._1 match {
+								case regex(r, s, lt, p) => func(r, s, lt, p)
+								case _ => throw new InvalidPortFormatException
+							}
+							val p = implicitly[SdcParser[OutType]]
+							val rec = p.parse(in.metadata.ts, in.metadata.name, port, pair._2, ref)
+							collector.collect(rec)
+						} catch {
+							case e@(_: java.lang.NumberFormatException | _: InvalidPortFormatException) =>
+								records_cnt.inc()
+								ParseSdcRecord.LOG.warn(s"Bad record in file ${in.metadata.relativePath}: ${pair} - ${e.getMessage}")
+								ParseSdcRecord.LOG.info("Stacktrace: {}", e.getStackTrace)
 						}
-						//							val rec = parser(pair._2.split(","))
-						val p = implicitly[SdcParser[OutType]]
-						val rec = p.parse(in.metadata.metricsTime, in.metadata.name, port, pair._2, ref)
-						collector.collect(rec)
-					} catch {
-						case e: Throwable =>
-							records_cnt.inc()
-							ParseSdcRecord.LOG.warn(s"Bad record in file ${in.metadata.relativePath}: ${pair} - ${e.getMessage}")
-							ParseSdcRecord.LOG.info("Stacktrace: {}", e.getStackTrace)
-					}
-				)
+					)
 
-			case _ =>
-				files_cnt.inc()
-				ParseSdcRecord.LOG.warn(s"Bad port format in file ${in.metadata.relativePath}: ${in.data.head._1}")
+				case _ =>
+					files_cnt.inc()
+					ParseSdcRecord.LOG.warn(s"Unknown port format in file ${in.metadata.relativePath}: ${in.data.head._1}")
+			}
 		}
 	}
 }
-
-//class Data()
-//class IntData(var element: Int) extends Data
-//class BoolData(var element: Boolean) extends Data
-//
-//class ArrayParser[OutputType <: Data]() {
-//	def parse(in: Array[String]): Array[OutputType] = {
-//		in.map(s => {
-//			import scala.reflect.runtime.universe._
-//			if (typeOf[OutputType] =:= typeOf[SdcInstantData])
-//				new IntData(s.toInt)
-//			else
-//				new BoolData(s.toBoolean)
-//		})
-//	}
-//}

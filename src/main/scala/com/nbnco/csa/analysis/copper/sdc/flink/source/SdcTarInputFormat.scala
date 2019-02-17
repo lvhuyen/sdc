@@ -65,11 +65,14 @@ class SdcTarInputFormat(filePath: Path, isComposit: Boolean, metricsPrefix: Stri
 	  * The function returns a tuple of two String if the header is valid, and returns null if invalid
 	  * *
 	  *
-	  * @return Returns the read record if it was successfully deserialized.
+	  * @return Returns a tuple3, with:
+		*         first element is the last Modified Date of the inner file
+		*         second element is the headers (a map from header name to header value)
+		*         third element is the records (a map from port to data)
 	  */
 	@throws[IOException]
-	private def readMemberTextFile(tarStream: TarArchiveInputStream): (Map[String, String], Map[String, String]) = {
-		tarStream.getNextTarEntry
+	private def readMemberTextFile(tarStream: TarArchiveInputStream): (Long, Map[String, String], Map[String, String]) = {
+		val curEntry = tarStream.getNextTarEntry
 		val lines = scala.io.Source.fromInputStream(tarStream).getLines
 		val (first_half, second_half) = lines.span(!_.startsWith("Object ID"))
 
@@ -84,29 +87,31 @@ class SdcTarInputFormat(filePath: Path, isComposit: Boolean, metricsPrefix: Stri
 				else tmp_r
 				).toMap[String, String]
 				.mapValues(_.drop(1))
-		(headers, records)
+		(curEntry.getLastModifiedDate.getTime, headers, records)
 	}
 
 	@throws[IOException]
-	private def readCompositTarFile(tarStream: TarArchiveInputStream): (Map[String, String], Map[String, String]) = {
-		val (headers_1, records_1) = readMemberTextFile(tarStream)
-		val (headers_2, records_2) = readMemberTextFile(tarStream)
+	private def readCompositTarFile(tarStream: TarArchiveInputStream): (Long, Map[String, String], Map[String, String]) = {
+		val (modTime1, headers_1, records_1) = readMemberTextFile(tarStream)
+		val (modTime2, headers_2, records_2) = readMemberTextFile(tarStream)
+
+		val modTime = Math.max(modTime1, modTime2)
 
 		if (!(headers_1("Time stamp").equals(headers_2("Time stamp")) && headers_1("NE Name").equals(headers_2("NE Name"))))
 			throw InvalidDataException(s"Tar file with unmatching member files: ${headers_1("Time stamp")}, ${headers_1("NE Name")}")
 
-		def mergeData (h1: Map[String, String], r1: Map[String, String], h2: Map[String, String], r2: Map[String, String]): (Map[String, String], Map[String, String]) = {
+		def mergeData (modTime: Long, h1: Map[String, String], r1: Map[String, String], h2: Map[String, String], r2: Map[String, String]): (Long, Map[String, String], Map[String, String]) = {
 			r2.keySet.diff(r1.keySet).foreach({
 				p => SdcTarInputFormat.LOG.warn(s"Port $p of ${h1("NE Name")} has MAC but no other data: ")
 			})
-			(h1 + ("Columns" -> s"${h1("Columns")},${h2("Columns")}"),
+			(modTime, h1 + ("Columns" -> s"${h1("Columns")},${h2("Columns")}"),
 					r1.map(a => a._1 -> (a._2 + "," + r2.getOrElse(a._1, ""))))
 		}
 
 		if (headers_1("Object Type").equals("XDSL Port"))
-			mergeData(headers_1, records_1, headers_2, records_2)
+			mergeData(modTime, headers_1, records_1, headers_2, records_2)
 		else
-			mergeData(headers_2, records_2, headers_1, records_1)
+			mergeData(modTime, headers_2, records_2, headers_1, records_1)
 	}
 
 	@throws[IOException]
@@ -116,10 +121,11 @@ class SdcTarInputFormat(filePath: Path, isComposit: Boolean, metricsPrefix: Stri
 			this.portPatternId = PORT_PATTERN_UNKNOWN
 			val processingTime = new java.util.Date().getTime
 
-			val (headers, records) =
-				if (isComposit) readCompositTarFile(tarStream)
-			else
-				readMemberTextFile(tarStream)
+			val (tarComponentFileTime, headers, records) =
+				if (isComposit)
+					readCompositTarFile(tarStream)
+				else
+					readMemberTextFile(tarStream)
 
 			// Track the list of known columns headers order:
 			if (!knownHeaders.contains(headers("Columns"))) {
@@ -143,12 +149,9 @@ class SdcTarInputFormat(filePath: Path, isComposit: Boolean, metricsPrefix: Stri
 				this.DELAY_METER.markEvent((this.fileModTime - metricsTime) / 1000)
 			}
 
-			if (records.nonEmpty)
-				DslamRaw(
-					DslamMetadata(isComposit, headers("NE Name"), metricsTime, headers("Columns"), fileName.getPath.split(filePath.getPath)(1), fileModTime, processingTime),
-					records.toSeq)
-			else
-				null
+			DslamRaw(
+				DslamMetadata(isComposit, headers("NE Name"), metricsTime, headers("Columns"), fileName.getPath.split(filePath.getPath)(1), fileModTime, processingTime, tarComponentFileTime, records.size),
+				records.toSeq)
 		} finally {
 			tarStream.close()
 		}
@@ -188,34 +191,6 @@ class SdcTarInputFormat(filePath: Path, isComposit: Boolean, metricsPrefix: Stri
 	@throws[IOException]
 	override def open(split: FileInputSplit): Unit = {
 		this.fileName = split.getPath
-//
-//		if (this.FILES_COUNT == null) {
-//			this.FILES_COUNT = getRuntimeContext
-//					.getMetricGroup.addGroup("Chronos-SDC")
-//					.counter(s"$metricsPrefix-Files-Count")
-//		}
-//		if (this.BAD_FILES_COUNT == null) {
-//			this.BAD_FILES_COUNT = getRuntimeContext
-//					.getMetricGroup.addGroup("Chronos-SDC")
-//					.counter(s"$metricsPrefix-Bad-Files-Count")
-//		}
-//		if (this.BAD_RECORDS_COUNT == null) {
-//			this.BAD_RECORDS_COUNT = getRuntimeContext
-//					.getMetricGroup.addGroup("Chronos-SDC")
-//					.counter(s"$metricsPrefix-Bad-Records-Count")
-//		}
-//		if (this.DELAY_HISTOGRAM == null) {
-//			this.DELAY_HISTOGRAM = getRuntimeContext
-//					.getMetricGroup.addGroup("Chronos-SDC")
-//					.histogram(s"$metricsPrefix-Files-Delay", new DropwizardHistogramWrapper(
-//						new com.codahale.metrics.Histogram(new SlidingTimeWindowReservoir(120, TimeUnit.MINUTES))))
-//		}
-//		if (this.DELAY_METER == null) {
-//			this.DELAY_METER = getRuntimeContext
-//					.getMetricGroup.addGroup("Chronos-SDC")
-//					.meter(s"$metricsPrefix-Files-Delay_Meter", new DropwizardMeterWrapper(
-//						new com.codahale.metrics.Meter()))
-//		}
 
 		if (this.splitStart != 0) {
 			// if the first partial record already pushes the stream over

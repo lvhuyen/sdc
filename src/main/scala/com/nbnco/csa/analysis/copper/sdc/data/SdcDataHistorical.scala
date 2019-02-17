@@ -4,24 +4,25 @@ package com.nbnco.csa.analysis.copper.sdc.data
   * Created by Huyen on 30/9/18.
   *
   * @param ses          xdslLinePreviousIntervalSESCounter
-  * @param uas          xdslLinePreviousIntervalUASCounter
-  * @param lprFe        xdslFarEndLinePreviousIntervalLPRCounter
+  * @param uas          xdslLinePreviousIntervalUASCounter					// UAS = UnAvailable Seconds
+  * @param lprFe        xdslFarEndLinePreviousIntervalLPRCounter		//LPR = Lost of Power
   * @param sesFe        xdslFarEndLinePreviousIntervalSESCounter
   * @param unCorrDtuDs  xdslFarEndChannelPreviousIntervalUnCorrDtuCounterDS
   * @param unCorrDtuUs  xdslChannelPreviousIntervalUnCorrDtuCounterUS
   * @param reInit       xdslLinePreviousIntervalReInitCounter
   * @param reTransUs    xdslFarEndChannelPreviousIntervalRetransmDtuCounterUS
   * @param reTransDs    xdslChannelPreviousIntervalRetransmDtuCounterDS
+	*                     Drop-out = reInit = LPR
   */
-case class SdcDataHistorical(var ses: Int,
-                             var uas: Int,
-                             var lprFe: Int,
-                             var sesFe: Int,
-                             var unCorrDtuDs: Int,
-                             var unCorrDtuUs: Int,
-                             var reInit: Int,
-                             var reTransUs : Int,
-                             var reTransDs: Int
+case class SdcDataHistorical(var ses: Long,
+                             var uas: Long,
+                             var lprFe: Long,
+                             var sesFe: Long,
+                             var unCorrDtuDs: Long,
+                             var unCorrDtuUs: Long,
+                             var reInit: Long,
+                             var reTransUs : Long,
+                             var reTransDs: Long
                             ) extends SdcDataBase {
 	def toMap: Map[String, Any] = {
 		Map (

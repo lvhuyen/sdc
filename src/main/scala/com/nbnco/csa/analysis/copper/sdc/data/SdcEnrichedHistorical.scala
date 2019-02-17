@@ -56,7 +56,8 @@ case class SdcEnrichedHistorical(ts: Long,
     override def put(i: Int, o: scala.Any): Unit = {
         throw new Exception("This class is for output only")
 //        SdcEnrichedHistorical.apply()
-    }}
+    }
+}
 
 object SdcEnrichedHistorical {
     def apply(raw: SdcRawHistorical, enrich: SdcDataEnrichment): SdcEnrichedHistorical = {
@@ -74,15 +75,15 @@ object SdcEnrichedHistorical {
                 .name("tsEnrich").`type`("long").noDefault()
                 .name("avcId").`type`().nullable().stringType().noDefault()
                 .name("cpi").`type`().nullable().stringType().noDefault()
-                .name("ses").`type`("int").noDefault()
-                .name("uas").`type`("int").noDefault()
-                .name("lprFe").`type`("int").noDefault()
-                .name("sesFe").`type`("int").noDefault()
-                .name("unCorrDtuDs").`type`("int").noDefault()
-                .name("unCorrDtuUs").`type`("int").noDefault()
-                .name("reInit").`type`("int").noDefault()
-                .name("reTransUs").`type`("int").noDefault()
-                .name("reTransDs").`type`("int").noDefault()
+                .name("ses").`type`("long").noDefault()
+                .name("uas").`type`("long").noDefault()
+                .name("lprFe").`type`("long").noDefault()
+                .name("sesFe").`type`("long").noDefault()
+                .name("unCorrDtuDs").`type`("long").noDefault()
+                .name("unCorrDtuUs").`type`("long").noDefault()
+                .name("reInit").`type`("long").noDefault()
+                .name("reTransUs").`type`("long").noDefault()
+                .name("reTransDs").`type`("long").noDefault()
                 .endRecord()
     }
 }

@@ -15,7 +15,7 @@ import org.apache.flink.util.Collector
 object IdentifyMissingDslam {
 	class AggIncremental extends AggregateFunction[DslamMetadata, Long, Long] {
 		override def createAccumulator() = 0L
-		override def add(in: DslamMetadata, acc: Long): Long = scala.math.max(in.metricsTime, acc)
+		override def add(in: DslamMetadata, acc: Long): Long = scala.math.max(in.ts, acc)
 		override def merge(acc: Long, acc2: Long): Long = scala.math.max(acc, acc2)
 		override def getResult(acc: Long): Long = acc
 	}

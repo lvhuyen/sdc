@@ -2,7 +2,7 @@ package com.nbnco.csa.analysis.copper.sdc.flink.sink
 
 import java.text.SimpleDateFormat
 
-import com.nbnco.csa.analysis.copper.sdc.data.{SdcEnrichedBase, SdcEnrichedInstant, SdcRawInstant, SdcRecord}
+import com.nbnco.csa.analysis.copper.sdc.data._
 import org.apache.avro.Schema
 import org.apache.avro.generic.IndexedRecord
 import org.apache.avro.specific.SpecificRecordBase
@@ -45,7 +45,7 @@ object SdcParquetFileSink {
 //				.build()
 //	}
 
-	def buildSinkGeneric[T <: SdcEnrichedBase](schema: Schema, outputPath: String, prefix: String, suffixFormat: String)(implicit ct: ClassTag[T]): StreamingFileSink[T] = {
+	def buildSinkGeneric[T <: TemporalEvent](schema: Schema, outputPath: String, prefix: String, suffixFormat: String)(implicit ct: ClassTag[T]): StreamingFileSink[T] = {
 		val a = ParquetAvroWriters.forGenericRecord(schema)
 		StreamingFileSink.forBulkFormat(new Path(outputPath), a).asInstanceOf[StreamingFileSink.BulkFormatBuilder[T, String]]
 				//				.withBucketCheckInterval(3L * 60L * 1000L)
@@ -69,7 +69,7 @@ object SdcParquetFileSink {
 //				.build()
 //	}
 
-	class SdcTimeBucketAssigner[T <: SdcRecord](prefix: String, formatString: String) extends BucketAssigner[T, String]{
+	class SdcTimeBucketAssigner[T <: TemporalEvent](prefix: String, formatString: String) extends BucketAssigner[T, String]{
 		@transient
 		var dateFormatter = new SimpleDateFormat(formatString)
 
