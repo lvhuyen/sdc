@@ -291,19 +291,19 @@ object StreamingSdcWithAverageByDslam {
 //				.name("Count Dslam - Instant")
 //
 		lazy val streamDslamMissingHistorical = streamDslamMetadataHistorical
-				.keyBy(_.name)
-				.window(EventTimeSessionWindows.withGap(Time.minutes(2 * cfgRollingAverageSlideInterval)))
-				.allowedLateness(Time.minutes(cfgRollingAverageAllowedLateness))
-				.aggregate(new IdentifyMissingDslam.AggIncremental, new IdentifyMissingDslam.AggFinal)
-				.uid(OperatorId.STATS_MISSING_DSLAM_HISTORICAL)
-				.name("Identify missing Dslam - Historical")
-//		val streamDslamCountHistorical = streamDslamMetadataHistorical
-//				.windowAll(TumblingEventTimeWindows.of(Time.minutes(cfgRollingAverageSlideInterval)))
-//				.allowedLateness(Time.minutes(cfgRollingAverageSlideInterval))
-//				.aggregate(new CountDslam.AggIncremental, new CountDslam.AggFinal)
-//				.uid(OperatorId.STATS_COUNT_HISTORICAL)
-//				.name("Count Dslam - Historical")
-//
+			.keyBy(_.name)
+			.window(EventTimeSessionWindows.withGap(Time.minutes(2 * cfgRollingAverageSlideInterval)))
+			.allowedLateness(Time.minutes(cfgRollingAverageAllowedLateness))
+			.aggregate(new IdentifyMissingDslam.AggIncremental, new IdentifyMissingDslam.AggFinal)
+			.uid(OperatorId.STATS_MISSING_DSLAM_HISTORICAL)
+			.name("Identify missing Dslam - Historical")
+		//		val streamDslamCountHistorical = streamDslamMetadataHistorical
+		//				.windowAll(TumblingEventTimeWindows.of(Time.minutes(cfgRollingAverageSlideInterval)))
+		//				.allowedLateness(Time.minutes(cfgRollingAverageSlideInterval))
+		//				.aggregate(new CountDslam.AggIncremental, new CountDslam.AggFinal)
+		//				.uid(OperatorId.STATS_COUNT_HISTORICAL)
+		//				.name("Count Dslam - Historical")
+		//
 		/** Enrich SDC Streams */
 		implicit val typeInfo = createTypeInformation[SdcRecord]
 		val outputTagI = OutputTag[SdcRawInstant]("unenrichable_i")
@@ -311,22 +311,22 @@ object StreamingSdcWithAverageByDslam {
 
 		val streamEnriched: DataStream[SdcEnrichedBase] =
 			streamSdcRawInstant.map(_.asInstanceOf[SdcRawBase]).uid("Huyen1")
-					.union(streamSdcRawHistorical.map(_.asInstanceOf[SdcRawBase]).uid("Huyen2"))
-//				.assignTimestampsAndWatermarks(new SdcRecordTimeAssigner[SdcRawBase]).name("Assign Timestamp")
+				.union(streamSdcRawHistorical.map(_.asInstanceOf[SdcRawBase]).uid("Huyen2"))
+				//				.assignTimestampsAndWatermarks(new SdcRecordTimeAssigner[SdcRawBase]).name("Assign Timestamp")
 				.keyBy(r => (r.dslam, r.port))
 				.connect(streamEnrichmentAgg.keyBy(r => (r.dslam, r.port)))
 				.process(new EnrichSdcRecord(outputTagI, outputTagH))
 				.uid(OperatorId.SDC_ENRICHER)
-	        	.name("Enrich SDC records")
-//		val streamNotEnrichableInstant = streamEnriched.getSideOutput(outputTagI)
-//		val streamNotEnrichableHistorical = streamEnriched.getSideOutput(outputTagH)
+				.name("Enrich SDC records")
+		//		val streamNotEnrichableInstant = streamEnriched.getSideOutput(outputTagI)
+		//		val streamNotEnrichableHistorical = streamEnriched.getSideOutput(outputTagH)
 
 		/** split SDC streams into instant and historical */
 		val splits: SplitStream[SdcEnrichedBase] = streamEnriched
-				.map(a => a).split(_ match {
-					case _:SdcEnrichedInstant => List("instant")
-					case _:SdcEnrichedHistorical => List("historical")
-				})
+			.map(a => a).split(_ match {
+			case _:SdcEnrichedInstant => List("instant")
+			case _:SdcEnrichedHistorical => List("historical")
+		})
 
 		val streamEnrichedInstant = splits.select("instant").map(_ match {
 			case i: SdcEnrichedInstant => i
@@ -336,41 +336,41 @@ object StreamingSdcWithAverageByDslam {
 		}).uid("Split2")
 
 		/** calculate rolling average from enrichment */
-			// todo: This section is using an experiment feature to avoid shuffle
+		// todo: This section is using an experiment feature to avoid shuffle
 		lazy val streamAverage: DataStream[SdcAverage] =
-			new DataStreamUtils(streamEnrichedInstant)
-					.reinterpretAsKeyedStream(r => (r.dslam, r.port))
-					.window(SlidingEventTimeWindows.of(Time.minutes(cfgRollingAverageWindowInterval),
-						Time.minutes(cfgRollingAverageSlideInterval)))
-					.allowedLateness(Time.minutes(cfgRollingAverageAllowedLateness))
-					.trigger(new AverageSdcInstant.AggTrigger(Time.minutes(cfgRollingAverageSlideInterval).toMilliseconds))
-					.aggregate(new AverageSdcInstant.AggIncremental, new AverageSdcInstant.AggFinal)
-					.uid(OperatorId.SDC_AVERAGER)
-					.name("Calculate Rolling Average")
+		new DataStreamUtils(streamEnrichedInstant)
+			.reinterpretAsKeyedStream(r => (r.dslam, r.port))
+			.window(SlidingEventTimeWindows.of(Time.minutes(cfgRollingAverageWindowInterval),
+				Time.minutes(cfgRollingAverageSlideInterval)))
+			.allowedLateness(Time.minutes(cfgRollingAverageAllowedLateness))
+			.trigger(new AverageSdcInstant.AggTrigger(Time.minutes(cfgRollingAverageSlideInterval).toMilliseconds))
+			.aggregate(new AverageSdcInstant.AggIncremental, new AverageSdcInstant.AggFinal)
+			.uid(OperatorId.SDC_AVERAGER)
+			.name("Calculate Rolling Average")
 
 		/** create combined SDC stream */
-//		val combined = streamEnrichedInstant.connect(streamEnrichedHistorical)
-//				.keyBy(r => (r.dslam, r.port, r.ts), r => (r.dslam, r.port, r.ts))
-//	        	.process(new SdcRecordCombiner(10000L, 5000L, 30000L))
+		//		val combined = streamEnrichedInstant.connect(streamEnrichedHistorical)
+		//				.keyBy(r => (r.dslam, r.port, r.ts), r => (r.dslam, r.port, r.ts))
+		//	        	.process(new SdcRecordCombiner(10000L, 5000L, 30000L))
 
-//		val streamCombined = streamEnrichedInstant.connect(streamEnrichedHistorical)
-//				.keyBy(r => (r.dslam, r.port), r => (r.dslam, r.port))
-//				.process(new SdcRecordCombiner2(20000L, 5000L, 30000L))
+		//		val streamCombined = streamEnrichedInstant.connect(streamEnrichedHistorical)
+		//				.keyBy(r => (r.dslam, r.port), r => (r.dslam, r.port))
+		//				.process(new SdcRecordCombiner2(20000L, 5000L, 30000L))
 
 		if (debug) {
 			if (cfgParquetEnabled) {
 				streamEnrichedInstant.addSink(
 					SdcParquetFileSink.buildSinkGeneric[SdcEnrichedInstant](SdcEnrichedInstant.getSchema(),
 						cfgParquetInstantPath, cfgParquetPrefix, cfgParquetSuffixFormat))
-						.setParallelism(cfgElasticSearchAverageParallelism)
+					.setParallelism(cfgElasticSearchAverageParallelism)
 				streamEnrichedHistorical.addSink(
 					SdcParquetFileSink.buildSinkGeneric[SdcEnrichedHistorical](SdcEnrichedHistorical.getSchema(),
 						cfgParquetHistoricalPath, cfgParquetPrefix, cfgParquetSuffixFormat))
-						.setParallelism(cfgElasticSearchAverageParallelism)
+					.setParallelism(cfgElasticSearchAverageParallelism)
 			}
 			streamSdcRawHistorical.print()
-//			streamSdcRawInstant.print()
-//			streamEnrichment.print()
+			//			streamSdcRawInstant.print()
+			//			streamEnrichment.print()
 			streamEnrichedInstant.print()
 //			streamEnrichment.map(_.toString).print()
 //			streamEnriched.print()
@@ -452,9 +452,9 @@ object StreamingSdcWithAverageByDslam {
 				streamEnrichedInstant.addSink(
 					SdcParquetFileSink.buildSinkGeneric[SdcEnrichedInstant](SdcEnrichedInstant.getSchema(),
 						cfgParquetInstantPath, cfgParquetPrefix, cfgParquetSuffixFormat))
-						.setParallelism(cfgParquetParallelism)
-						.uid(OperatorId.SINK_PARQUET_INSTANT)
-						.name("S3 - Instant")
+					.setParallelism(cfgParquetParallelism)
+					.uid(OperatorId.SINK_PARQUET_INSTANT)
+					.name("S3 - Instant")
 
 				streamEnrichedHistorical.addSink(
 					SdcParquetFileSink.buildSinkGeneric[SdcEnrichedHistorical](SdcEnrichedHistorical.getSchema(),
