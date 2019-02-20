@@ -1,6 +1,6 @@
 package com.nbnco.csa.analysis.copper.sdc.flink.operator
 
-import com.nbnco.csa.analysis.copper.sdc.data.{AmsRaw, FlsRaw, FlsRecord}
+import com.nbnco.csa.analysis.copper.sdc.data.{AmsRaw, FlsRaw, EnrichmentRecord}
 import org.apache.flink.api.common.state.ValueStateDescriptor
 import org.apache.flink.configuration.Configuration
 import org.apache.flink.streaming.api.functions.co.RichCoFlatMapFunction
@@ -13,7 +13,7 @@ import org.apache.flink.util.Collector
 /**
   * This RichCoFlatMapFunction is used to enrich a SdcRaw object with AVC_ID and CPI
   */
-class MergeAmsFls extends RichCoFlatMapFunction[AmsRaw, FlsRaw, FlsRecord] {
+class MergeAmsFls extends RichCoFlatMapFunction[AmsRaw, FlsRaw, EnrichmentRecord] {
 	val amsMappingDescriptor = new ValueStateDescriptor[(String, String, Long)]("AmsRaw", classOf[(String, String, Long)])
 	val flsMappingDescriptor = new ValueStateDescriptor[(String, String, Long)]("FlsRaw", classOf[(String, String, Long)])
 
@@ -29,7 +29,7 @@ class MergeAmsFls extends RichCoFlatMapFunction[AmsRaw, FlsRaw, FlsRecord] {
 		//					new com.codahale.metrics.Meter()))
 	}
 
-	override def flatMap1(in1: AmsRaw, out: Collector[FlsRecord]): Unit = {
+	override def flatMap1(in1: AmsRaw, out: Collector[EnrichmentRecord]): Unit = {
 		val cachedAms = getRuntimeContext.getState(amsMappingDescriptor)
 
 		val current_ts = in1.metrics_date.toEpochMilli
@@ -39,13 +39,13 @@ class MergeAmsFls extends RichCoFlatMapFunction[AmsRaw, FlsRaw, FlsRecord] {
 					cachedAms.update((dslam, port, current_ts))
 					val cachedFlsValue = getRuntimeContext.getState(flsMappingDescriptor).value
 					if (cachedFlsValue != null)
-						out.collect(FlsRecord(enrichment_time(cachedFlsValue._3, current_ts),
+						out.collect(EnrichmentRecord(enrichment_time(cachedFlsValue._3, current_ts),
 							dslam, port, cachedFlsValue._1, cachedFlsValue._2))
 			}
 		}
 	}
 
-	override def flatMap2(in2: FlsRaw, out: Collector[FlsRecord]): Unit = {
+	override def flatMap2(in2: FlsRaw, out: Collector[EnrichmentRecord]): Unit = {
 		val cachedFls = getRuntimeContext.getState(flsMappingDescriptor)
 
 		val current_ts = in2.metrics_date.toEpochMilli
@@ -53,7 +53,7 @@ class MergeAmsFls extends RichCoFlatMapFunction[AmsRaw, FlsRaw, FlsRecord] {
 			cachedFls.update((in2.avc_id, in2.ntd_id, in2.metrics_date.toEpochMilli))
 			val cachedAmsValue = getRuntimeContext.getState(amsMappingDescriptor).value
 			if (cachedAmsValue != null)
-				out.collect(FlsRecord(enrichment_time(current_ts, cachedAmsValue._3),
+				out.collect(EnrichmentRecord(enrichment_time(current_ts, cachedAmsValue._3),
 					cachedAmsValue._1, cachedAmsValue._2, in2.avc_id, in2.ntd_id))
 		}
 	}

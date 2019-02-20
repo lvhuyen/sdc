@@ -3,11 +3,11 @@ package com.nbnco.csa.analysis.copper.sdc.data
 /**
   * Created by Huyen on 30/9/18.
   *
-  * @param ses          xdslLinePreviousIntervalSESCounter
-  * @param uas          xdslLinePreviousIntervalUASCounter					// UAS = UnAvailable Seconds
-  * @param lprFe        xdslFarEndLinePreviousIntervalLPRCounter		//LPR = Lost of Power
+  * @param ses          xdslLinePreviousIntervalSESCounter				// SES = Severely Errored Seconds
+  * @param uas          xdslLinePreviousIntervalUASCounter				// UAS = UnAvailable Seconds
+  * @param lprFe        xdslFarEndLinePreviousIntervalLPRCounter		// LPR = Loss of Power
   * @param sesFe        xdslFarEndLinePreviousIntervalSESCounter
-  * @param unCorrDtuDs  xdslFarEndChannelPreviousIntervalUnCorrDtuCounterDS
+  * @param unCorrDtuDs  xdslFarEndChannelPreviousIntervalUnCorrDtuCounterDS		// UnCorrectable DTU
   * @param unCorrDtuUs  xdslChannelPreviousIntervalUnCorrDtuCounterUS
   * @param reInit       xdslLinePreviousIntervalReInitCounter
   * @param reTransUs    xdslFarEndChannelPreviousIntervalRetransmDtuCounterUS

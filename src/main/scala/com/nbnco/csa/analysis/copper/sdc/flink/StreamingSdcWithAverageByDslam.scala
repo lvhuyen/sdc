@@ -83,7 +83,7 @@ object StreamingSdcWithAverageByDslam {
 		return streamEnv
 	}
 
-	def readEnrichmentData(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): DataStream[FlsRecord] = {
+	def readEnrichmentData(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): DataStream[EnrichmentRecord] = {
 		val cfgFlsParquetLocation = appConfig.get("sources.fls-parquet.path", "s3://thor-pr-data-warehouse-common/common.ipact.fls.fls7_avc_inv/version=0/")
 		val cfgFlsParquetScanInterval = appConfig.getLong("sources.fls-parquet.scan-interval", 60000L)
 		val cfgFlsParquetScanConsistency = appConfig.getLong("sources.fls-parquet.scan-consistency-offset", 0L)
@@ -121,7 +121,7 @@ object StreamingSdcWithAverageByDslam {
 		return streamEnrichment
 	}
 
-	def readEnrichmentStream(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): DataStream[FlsRecord] = {
+	def readEnrichmentStream(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): DataStream[EnrichmentRecord] = {
 		val cfgFlsInitialLocation = appConfig.get("sources.fls-initial.path", "file:///Users/Huyen/Desktop/SDC/enrich/")
 		val cfgFlsIncrementalLocation = appConfig.get("sources.fls-incremental.path", "file:///Users/Huyen/Desktop/SDCTest/enrich/")
 
@@ -148,7 +148,7 @@ object StreamingSdcWithAverageByDslam {
 		val flsRaw = streamFlsIncremental.union(streamFlsInitial)
 			.flatMap(line => {
 				val v = line.split(",")
-				List(FlsRecord(v(4).toLong,v(1),v(2),v(3),v(4)))
+				List(EnrichmentRecord(v(4).toLong,v(1),v(2),v(3),v(4)))
 			})
 
 		return flsRaw
@@ -406,7 +406,7 @@ object StreamingSdcWithAverageByDslam {
 
 			if (cfgElasticSearchEnrichmentEnabled)
 				streamEnrichmentAgg
-					.addSink(SdcElasticSearchSink.createElasticSearchSink[FlsRecord](
+					.addSink(SdcElasticSearchSink.createElasticSearchSink[EnrichmentRecord](
 						cfgElasticSearchEndpoint,
 						r => cfgElasticSearchEnrichmentIndexName,
 						r => r.toMap,

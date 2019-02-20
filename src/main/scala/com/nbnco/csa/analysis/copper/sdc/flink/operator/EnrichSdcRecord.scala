@@ -15,12 +15,12 @@ import org.apache.flink.util.Collector
   * This RichCoFlatMapFunction is used to enrich a SdcRaw object with AVC_ID and CPI
   */
 class EnrichSdcRecord(unenrichableI: OutputTag[SdcRawInstant], unenrichableH: OutputTag[SdcRawHistorical])
-		extends CoProcessFunction[SdcRawBase, FlsRecord, SdcEnrichedBase] {
+		extends CoProcessFunction[SdcRawBase, EnrichmentRecord, SdcEnrichedBase] {
 
 	val mappingDescriptor = new ValueStateDescriptor[SdcDataEnrichment]("FLS_Mapping", classOf[SdcDataEnrichment])
 
 	@ForwardedFields(Array("dslam","port"))
-	override def processElement1(in1: SdcRawBase, context: CoProcessFunction[SdcRawBase, FlsRecord, SdcEnrichedBase]#Context, out: Collector[SdcEnrichedBase]): Unit = {
+	override def processElement1(in1: SdcRawBase, context: CoProcessFunction[SdcRawBase, EnrichmentRecord, SdcEnrichedBase]#Context, out: Collector[SdcEnrichedBase]): Unit = {
 		val mapping = getRuntimeContext.getState(mappingDescriptor).value
 
 		if (mapping != null) {
@@ -37,7 +37,7 @@ class EnrichSdcRecord(unenrichableI: OutputTag[SdcRawInstant], unenrichableH: Ou
 		}
 	}
 
-	override def processElement2(in2: FlsRecord, context: CoProcessFunction[SdcRawBase, FlsRecord, SdcEnrichedBase]#Context, out: Collector[SdcEnrichedBase]): Unit = {
+	override def processElement2(in2: EnrichmentRecord, context: CoProcessFunction[SdcRawBase, EnrichmentRecord, SdcEnrichedBase]#Context, out: Collector[SdcEnrichedBase]): Unit = {
 		val mapping = getRuntimeContext.getState(mappingDescriptor)
 		if (mapping.value == null || mapping.value.tsEnrich < in2.ts)
 			mapping.update(SdcDataEnrichment(in2.ts, in2.avcId, in2.cpi))

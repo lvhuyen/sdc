@@ -23,7 +23,7 @@ under the License.
 
 	<groupId>com.nbnco.copper.csa.analysis.chronos</groupId>
 	<artifactId>chronos-flink</artifactId>
-	<version>0.2</version>
+	<version>0.3-snapshot</version>
 	<packaging>jar</packaging>
 
 	<name>Chronos SDC</name>

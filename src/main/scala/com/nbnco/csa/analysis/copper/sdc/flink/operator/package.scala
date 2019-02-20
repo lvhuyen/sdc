@@ -1,6 +1,6 @@
 package com.nbnco.csa.analysis.copper.sdc.flink
 
-import com.nbnco.csa.analysis.copper.sdc.data.{DslamRaw, FlsRecord, SdcRecord}
+import com.nbnco.csa.analysis.copper.sdc.data.{DslamRaw, EnrichmentRecord, SdcRecord}
 import org.apache.flink.streaming.api.functions.timestamps.BoundedOutOfOrdernessTimestampExtractor
 import org.apache.flink.streaming.api.windowing.time.Time
 

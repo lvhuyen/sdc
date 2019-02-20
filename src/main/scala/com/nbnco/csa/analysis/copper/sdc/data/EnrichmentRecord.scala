@@ -3,7 +3,7 @@ package com.nbnco.csa.analysis.copper.sdc.data
 /**
   * Created by Huyen on 11/7/18.
   */
-case class FlsRecord(ts: Long, dslam: String, port: String, avcId: String, cpi: String)
+case class EnrichmentRecord(ts: Long, dslam: String, port: String, avcId: String, cpi: String)
 		extends SdcRecord {
 
 	def this() = this (0L, "", "", "", "")
@@ -19,6 +19,6 @@ case class FlsRecord(ts: Long, dslam: String, port: String, avcId: String, cpi: 
 	}
 }
 
-object FlsRecord {
-	def apply(): FlsRecord = FlsRecord (0L, "", "", "", "")
+object EnrichmentRecord {
+	def apply(): EnrichmentRecord = EnrichmentRecord (0L, "", "", "", "")
 }
