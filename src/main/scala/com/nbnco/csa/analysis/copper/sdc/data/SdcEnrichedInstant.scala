@@ -68,9 +68,26 @@ object SdcEnrichedInstant {
 				enrich.getOrElse(EnrichmentAttributeName.CPI, null).asInstanceOf[String]),
 			raw.data)
 	}
+	def apply(raw: SdcRawInstant): SdcEnrichedInstant = {
+		SdcEnrichedInstant(raw.ts, raw.dslam, raw.port,
+			SdcDataEnrichment(Long.MinValue, null, null),
+			raw.data)
+	}
 	def apply(): SdcEnrichedInstant = {
 		SdcEnrichedInstant(0L, "", "", SdcDataEnrichment(), SdcDataInstant())
 	}
+
+	def buildKeyForPctlsTable(enrich: EnrichmentData) = s"${
+		enrich.get(EnrichmentAttributeName.TECH_TYPE) match {
+			case TechType.FTTN =>
+				s"FTTN"
+		}
+
+		enrich.getOrElse(EnrichmentAttributeName.TECH_TYPE, "")},${
+		if (isDownStream) enrich.getOrElse(EnrichmentAttributeName.TC4_DS, "")
+		else enrich.getOrElse(EnrichmentAttributeName.TC4_US, "")},${
+
+	}"
 
 	def getSchema(): Schema = {
 		org.apache.avro.SchemaBuilder

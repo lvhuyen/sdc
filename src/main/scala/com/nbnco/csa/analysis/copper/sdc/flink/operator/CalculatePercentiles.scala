@@ -1,9 +1,10 @@
 package com.nbnco.csa.analysis.copper.sdc.flink.operator
 
 import com.nbnco.csa.analysis.copper.sdc.data._
-import org.apache.flink.api.common.state.ValueStateDescriptor
+import org.apache.flink.api.common.state.{MapStateDescriptor, ValueStateDescriptor}
+import org.apache.flink.api.common.typeinfo.{BasicArrayTypeInfo, BasicTypeInfo}
 import org.apache.flink.api.java.functions.FunctionAnnotation.ForwardedFields
-import org.apache.flink.streaming.api.functions.co.CoProcessFunction
+import org.apache.flink.streaming.api.functions.co.{CoProcessFunction, KeyedBroadcastProcessFunction}
 import org.apache.flink.streaming.api.scala.OutputTag
 import org.apache.flink.util.Collector
 
@@ -14,7 +15,49 @@ import org.apache.flink.util.Collector
 /**
   * This RichCoFlatMapFunction is used to enrich a SdcRaw object with AVC_ID and CPI
   */
-class CalculatePercentiles(enrichedI: OutputTag[SdcEnrichedInstant], enrichedH: OutputTag[SdcEnrichedHistorical])
+
+class CalculatePercentiles (enrichedI: OutputTag[SdcEnrichedInstant], enrichedH: OutputTag[SdcEnrichedHistorical])
+	extends KeyedBroadcastProcessFunction[(String, String), CopperLine, (String, Array[Float]), SdcEnrichedBase] {
+
+	val enrichmentStateDescriptor = new ValueStateDescriptor[EnrichmentData](
+		"Enrichment_Mapping", classOf[EnrichmentData])
+
+	val pctlsStateDescriptor = new MapStateDescriptor(
+		"PercentilessBroadcastState",
+		BasicTypeInfo.STRING_TYPE_INFO, BasicArrayTypeInfo.FLOAT_ARRAY_TYPE_INFO);
+
+	override def processBroadcastElement(in2: (String, Array[Float]), context: KeyedBroadcastProcessFunction[(String, String), CopperLine, (String, Array[Float]), SdcEnrichedBase]#Context, collector: Collector[SdcEnrichedBase]): Unit = {
+
+	}
+
+	override def processElement(in1: CopperLine, readOnlyContext: KeyedBroadcastProcessFunction[(String, String), CopperLine, (String, Array[Float]), SdcEnrichedBase]#ReadOnlyContext, collector: Collector[SdcEnrichedBase]): Unit = {
+		val cachedEnrichmentStateDesc = getRuntimeContext.getState(enrichmentStateDescriptor)
+		val cachedEnrichmentData = cachedEnrichmentStateDesc.value()
+		val cachedPctls = readOnlyContext.getBroadcastState(pctlsStateDescriptor)
+		in1 match {
+			case e: EnrichmentRecord =>
+				cachedEnrichmentStateDesc.update(
+					if (cachedEnrichmentData == null) e.data
+					else e.data ++ cachedEnrichmentData
+				)
+
+			case h: SdcRawHistorical =>
+				val result = if (cachedEnrichmentData != null) h.enrich(cachedEnrichmentData) else h.enrich(Map.empty)
+				collector.collect(result)
+				readOnlyContext.output(enrichedH, h)
+
+			case i: SdcRawInstant =>
+				val result = if (cachedEnrichmentData != null)
+					SdcEnrichedInstant(i, cachedEnrichmentData)
+				else
+					SdcEnrichedInstant(i)
+				collector.collect(result)
+				readOnlyContext.output(enrichedI, i)
+		}
+	}
+}
+
+class CalculatePercentiles2(enrichedI: OutputTag[SdcEnrichedInstant], enrichedH: OutputTag[SdcEnrichedHistorical])
 		extends CoProcessFunction[SdcRawBase, EnrichmentRecord, SdcEnrichedBase] {
 
 	val mappingDescriptor = new ValueStateDescriptor[EnrichmentData](

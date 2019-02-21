@@ -108,10 +108,7 @@ object StreamingSdcWithAverageByDslam {
 					FileProcessingMode.PROCESS_CONTINUOUSLY, cfgEnrichmentScanInterval, cfgEnrichmentScanConsistency)
 				.uid(OperatorId.SOURCE_FLS_RAW)
 				.map(RawFls(_))
-				.filter(r => {
-					val techType = r.data.getOrElse(EnrichmentAttributeName.TECH_TYPE, None);
-					techType == TechType.FTTN || techType  == TechType.FTTB
-				})
+				.filter(!_.data.getOrElse(EnrichmentAttributeName.TECH_TYPE, RawFls.unsupportedTechType).equals(RawFls.unsupportedTechType))
 				.name("FLS parquet")
 
 		// Read AMS Data
@@ -164,7 +161,7 @@ object StreamingSdcWithAverageByDslam {
 		return streamAmsFlsParquet.union(streamNacParquet).union(streamAtten375Parquet)
 	}
 
-	def readPercentilesTable(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): DataStream[Map[String, Array[Float]]] = {
+	def readPercentilesTable(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): DataStream[(String, Array[Float])] = {
 		val cfgEnrichmentScanInterval = appConfig.getLong("sources.enrichment.scan-interval", 60000L)
 		val cfgEnrichmentIgnoreOlderThan = appConfig.getLong("sources.enrichment.ignore-files-older-than-minutes", 10000) * 60 * 1000
 		val cfgPctlsJsonLocation = appConfig.get("sources.percentiles-json.path", "s3://thor-pr-data-warehouse-common/common.ipact.fls.fls7_avc_inv/version=0/")
@@ -180,10 +177,10 @@ object StreamingSdcWithAverageByDslam {
 					FileProcessingMode.PROCESS_CONTINUOUSLY, cfgEnrichmentScanInterval)
         		.uid(OperatorId.SOURCE_PERCENTILES_RAW)
 				.map({ mapper.readValue[Map[String, Object]](_) })
-        		.map(r => {
-					Map(s"${r.getOrElse("Tier","")},${r.getOrElse("Attenuation","")}"
-							-> r.getOrElse[Array[Float]]("Percentiles", Array()))
-				})
+        		.map(r =>
+					(s"${r.getOrElse("Tier","")},${r.getOrElse("Attenuation","")}",
+							r.getOrElse[Array[Float]]("Percentiles", Array()))
+				)
 		return streamPctls
 	}
 
