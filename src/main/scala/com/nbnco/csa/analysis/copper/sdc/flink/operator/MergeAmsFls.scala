@@ -1,6 +1,6 @@
 package com.nbnco.csa.analysis.copper.sdc.flink.operator
 
-import com.nbnco.csa.analysis.copper.sdc.data.{AmsRaw, FlsRaw, EnrichmentRecord}
+import com.nbnco.csa.analysis.copper.sdc.data._
 import org.apache.flink.api.common.state.ValueStateDescriptor
 import org.apache.flink.configuration.Configuration
 import org.apache.flink.streaming.api.functions.co.RichCoFlatMapFunction
@@ -13,52 +13,39 @@ import org.apache.flink.util.Collector
 /**
   * This RichCoFlatMapFunction is used to enrich a SdcRaw object with AVC_ID and CPI
   */
-class MergeAmsFls extends RichCoFlatMapFunction[AmsRaw, FlsRaw, EnrichmentRecord] {
-	val amsMappingDescriptor = new ValueStateDescriptor[(String, String, Long)]("AmsRaw", classOf[(String, String, Long)])
-	val flsMappingDescriptor = new ValueStateDescriptor[(String, String, Long)]("FlsRaw", classOf[(String, String, Long)])
-
-	//	@transient private var nRecords: Meter = _
+class MergeAmsFls extends RichCoFlatMapFunction[RawAms, RawFls, EnrichmentRecord] {
+	val amsMappingDescriptor = new ValueStateDescriptor[RawAms]("AmsRaw", classOf[RawAms])
+	val flsMappingDescriptor = new ValueStateDescriptor[RawFls]("FlsRaw", classOf[RawFls])
 
 	override def open(parameters: Configuration): Unit = {
 		super.open(parameters)
-
-		//		nRecords = getRuntimeContext
-		//				.getMetricGroup
-		//				.addGroup("Chronos")
-		//				.meter("NEED_A_NAME", new org.apache.flink.dropwizard.metrics.DropwizardMeterWrapper(
-		//					new com.codahale.metrics.Meter()))
 	}
 
-	override def flatMap1(in1: AmsRaw, out: Collector[EnrichmentRecord]): Unit = {
+	override def flatMap1(in1: RawAms, out: Collector[EnrichmentRecord]): Unit = {
 		val cachedAms = getRuntimeContext.getState(amsMappingDescriptor)
 
-		val current_ts = in1.metrics_date.toEpochMilli
-		if (cachedAms.value == null || cachedAms.value._3 < current_ts) {
-			in1 match {
-				case AmsRaw((dslam: String, port: String)) =>
-					cachedAms.update((dslam, port, current_ts))
+		if (cachedAms.value == null || cachedAms.value.ts < in1.ts) {
+					cachedAms.update(in1)
 					val cachedFlsValue = getRuntimeContext.getState(flsMappingDescriptor).value
 					if (cachedFlsValue != null)
-						out.collect(EnrichmentRecord(enrichment_time(cachedFlsValue._3, current_ts),
-							dslam, port, cachedFlsValue._1, cachedFlsValue._2))
-			}
+						out.collect(EnrichmentRecord(chooseEnrichmentTime(cachedFlsValue.ts, in1.ts),
+							in1.dslam, in1.port, cachedFlsValue.data))
 		}
 	}
 
-	override def flatMap2(in2: FlsRaw, out: Collector[EnrichmentRecord]): Unit = {
+	override def flatMap2(in2: RawFls, out: Collector[EnrichmentRecord]): Unit = {
 		val cachedFls = getRuntimeContext.getState(flsMappingDescriptor)
 
-		val current_ts = in2.metrics_date.toEpochMilli
-		if (cachedFls.value == null || cachedFls.value._3 < current_ts) {
-			cachedFls.update((in2.avc_id, in2.ntd_id, in2.metrics_date.toEpochMilli))
+		if (cachedFls.value == null || cachedFls.value.ts < in2.ts) {
+			cachedFls.update(in2)
 			val cachedAmsValue = getRuntimeContext.getState(amsMappingDescriptor).value
 			if (cachedAmsValue != null)
-				out.collect(EnrichmentRecord(enrichment_time(current_ts, cachedAmsValue._3),
-					cachedAmsValue._1, cachedAmsValue._2, in2.avc_id, in2.ntd_id))
+				out.collect(EnrichmentRecord(chooseEnrichmentTime(in2.ts, cachedAmsValue.ts),
+					cachedAmsValue.dslam, cachedAmsValue.port, in2.data))
 		}
 	}
 
-	private def enrichment_time = (flsTime: Long, amsTime: Long) => Math.min(flsTime, amsTime)
+	private def chooseEnrichmentTime = (flsTime: Long, amsTime: Long) => Math.min(flsTime, amsTime)
 }
 
 //class EnrichSdcRecord extends CoProcessFunction[SdcRaw, FlsRecord, SdcEnriched] {

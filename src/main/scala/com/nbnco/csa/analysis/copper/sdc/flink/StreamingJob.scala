@@ -18,10 +18,10 @@
 
 package com.nbnco.csa.analysis.copper.sdc.flink
 
-import com.nbnco.csa.analysis.copper.sdc.data.{FlsRaw, SdcDataEnrichment, SdcDataInstant, SdcEnrichedInstant}
+import com.nbnco.csa.analysis.copper.sdc.data.{PojoFls, SdcDataEnrichment, SdcDataInstant, SdcEnrichedInstant}
 import com.nbnco.csa.analysis.copper.sdc.flink.StreamingSdcWithAverageByDslam.OperatorId
 import com.nbnco.csa.analysis.copper.sdc.flink.sink.SdcParquetFileSink
-import com.nbnco.csa.analysis.copper.sdc.flink.source.{EnrichmentFilePathFilter, FlsRawFileInputFormat}
+import com.nbnco.csa.analysis.copper.sdc.flink.source.{EnrichmentFilePathFilter, FlsParquetFileInputFormat}
 import org.apache.flink.api.common.io.FilePathFilter
 import org.apache.flink.api.java.io.TextInputFormat
 import org.apache.flink.contrib.streaming.state.RocksDBStateBackend

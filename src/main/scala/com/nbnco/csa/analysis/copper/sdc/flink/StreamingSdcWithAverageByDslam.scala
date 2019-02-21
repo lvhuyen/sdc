@@ -2,12 +2,17 @@ package com.nbnco.csa.analysis.copper.sdc.flink
 
 import java.time.Instant
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.scala.DefaultScalaModule
+import com.fasterxml.jackson.module.scala.experimental.ScalaObjectMapper
 import com.nbnco.csa.analysis.copper.sdc.data._
 import com.nbnco.csa.analysis.copper.sdc.flink.operator._
 import com.nbnco.csa.analysis.copper.sdc.flink.sink.SdcElasticSearchSink.DAILY_INDEX_SUFFIX_FORMATTER
 import com.nbnco.csa.analysis.copper.sdc.flink.sink.{SdcElasticSearchSink, SdcParquetFileSink}
 import com.nbnco.csa.analysis.copper.sdc.flink.source._
 import org.apache.flink.api.common.io.FilePathFilter
+import org.apache.flink.api.common.state.MapStateDescriptor
+import org.apache.flink.api.common.typeinfo.{BasicArrayTypeInfo, BasicTypeInfo}
 import org.apache.flink.api.java.io.TextInputFormat
 import org.apache.flink.api.java.utils.ParameterTool
 import org.apache.flink.contrib.streaming.state.RocksDBStateBackend
@@ -30,6 +35,9 @@ object StreamingSdcWithAverageByDslam {
 		val SOURCE_FLS_INCREMENTAL = "Source_Fls_Incremental"
 		val SOURCE_FLS_RAW = "Source_Fls_Raw"
 		val SOURCE_AMS_RAW = "Source_Ams_Raw"
+		val SOURCE_NAC_RAW = "Source_Nac_Raw"
+		val SOURCE_ATTEN375_RAW = "Source_Atten375_Raw"
+		val SOURCE_PERCENTILES_RAW = "Source_Percentiles_Raw"
 		val SINK_ELASTIC_ENRICHMENT = "Elastic_Enrichment"
 		val SINK_ELASTIC_COMBINED = "Elastic_Combined"
 		val SINK_ELASTIC_AVERAGE = "Elastic_Average"
@@ -84,41 +92,99 @@ object StreamingSdcWithAverageByDslam {
 	}
 
 	def readEnrichmentData(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): DataStream[EnrichmentRecord] = {
+		val cfgEnrichmentScanInterval = appConfig.getLong("sources.enrichment.scan-interval", 60000L)
+		val cfgEnrichmentScanConsistency = appConfig.getLong("sources.fls-parquet.scan-consistency-offset", 0L)
+		val cfgEnrichmentIgnoreOlderThan = appConfig.getLong("sources.enrichment.ignore-files-older-than-minutes", 10000) * 60 * 1000
+
 		val cfgFlsParquetLocation = appConfig.get("sources.fls-parquet.path", "s3://thor-pr-data-warehouse-common/common.ipact.fls.fls7_avc_inv/version=0/")
-		val cfgFlsParquetScanInterval = appConfig.getLong("sources.fls-parquet.scan-interval", 60000L)
-		val cfgFlsParquetScanConsistency = appConfig.getLong("sources.fls-parquet.scan-consistency-offset", 0L)
-		val cfgFlsParquetIgnore = appConfig.getLong("sources.fls-parquet.ignore-files-older-than-minutes", 10000) * 60 * 1000
-
 		val cfgAmsParquetLocation = appConfig.get("sources.ams-parquet.path", "s3://thor-pr-data-warehouse-fttx/fttx.ams.inventory.xdsl_port/version=0/")
-		val cfgAmsParquetScanInterval = appConfig.getLong("sources.ams-parquet.scan-interval", 60000L)
-		val cfgAmsParquetScanConsistency = appConfig.getLong("sources.ams-parquet.scan-consistency-offset", 0L)
-		val cfgAmsParquetIgnore = appConfig.getLong("sources.ams-parquet.ignore-files-older-than-minutes", 10000) * 60 * 1000
 
-		val fifFlsParquet = new FlsRawFileInputFormat(new Path(cfgFlsParquetLocation))
-		fifFlsParquet.setFilesFilter(new EnrichmentFilePathFilter(cfgFlsParquetIgnore))
+		// Read FLS Data
+		val fifFlsParquet = new ChronosParquetFileInputFormat[PojoFls](new Path(cfgFlsParquetLocation), createTypeInformation[PojoFls])
+		fifFlsParquet.setFilesFilter(new EnrichmentFilePathFilter(cfgEnrichmentIgnoreOlderThan))
 		fifFlsParquet.setNestedFileEnumeration(true)
-		val streamFlsParquet: DataStream[FlsRaw] = streamEnv
-			.readFile(fifFlsParquet, cfgFlsParquetLocation,
-				FileProcessingMode.PROCESS_CONTINUOUSLY, cfgFlsParquetScanInterval, cfgFlsParquetScanConsistency)
-			.uid(OperatorId.SOURCE_FLS_RAW)
-			.name("FLS parquet")
+		val streamFlsParquet: DataStream[RawFls] = streamEnv
+				.readFile(fifFlsParquet, cfgFlsParquetLocation,
+					FileProcessingMode.PROCESS_CONTINUOUSLY, cfgEnrichmentScanInterval, cfgEnrichmentScanConsistency)
+				.uid(OperatorId.SOURCE_FLS_RAW)
+				.map(RawFls(_))
+				.filter(r => {
+					val techType = r.data.getOrElse(EnrichmentAttributeName.TECH_TYPE, None);
+					techType == TechType.FTTN || techType  == TechType.FTTB
+				})
+				.name("FLS parquet")
 
-		val fifAmsParquet = new AmsRawFileInputFormat(new Path(cfgAmsParquetLocation))
-		fifAmsParquet.setFilesFilter(new EnrichmentFilePathFilter(cfgAmsParquetIgnore))
+		// Read AMS Data
+		val fifAmsParquet = new ChronosParquetFileInputFormat[PojoAms](new Path(cfgAmsParquetLocation), createTypeInformation[PojoAms])
+		fifAmsParquet.setFilesFilter(new EnrichmentFilePathFilter(cfgEnrichmentIgnoreOlderThan))
 		fifAmsParquet.setNestedFileEnumeration(true)
-		val streamAmsParquet: DataStream[AmsRaw] = streamEnv
-			.readFile(fifAmsParquet, cfgAmsParquetLocation,
-				FileProcessingMode.PROCESS_CONTINUOUSLY, cfgAmsParquetScanInterval, cfgAmsParquetScanConsistency)
-			.uid(OperatorId.SOURCE_AMS_RAW)
-			.name("AMS parquet")
+		val streamAmsParquet: DataStream[RawAms] = streamEnv
+				.readFile(fifAmsParquet, cfgAmsParquetLocation,
+					FileProcessingMode.PROCESS_CONTINUOUSLY, cfgEnrichmentScanInterval, cfgEnrichmentScanConsistency)
+				.uid(OperatorId.SOURCE_AMS_RAW)
+				.map(RawAms(_))
+        		.filter(!_.dslam.isEmpty)
+				.name("AMS parquet")
 
-		val streamEnrichment = streamAmsParquet.connect(streamFlsParquet)
-			.keyBy(_.customer_id, _.uni_prid)
+		// Join AMS with FLS
+		val streamAmsFlsParquet = streamAmsParquet.connect(streamFlsParquet)
+			.keyBy(_.uni_prid, _.uni_prid)
 			.flatMap(new MergeAmsFls)
 			.uid(OperatorId.AMS_FLS_MERGER)
 			.name("Merge AMS & FLS parquet")
 
-		return streamEnrichment
+		// Read Nac Data
+		val cfgNacParquetLocation = appConfig.get("sources.nac-parquet.path", "s3://thor-pr-data-warehouse-fttx/fttx.ams.inventory.xdsl_port/version=0/")
+
+		val fifNacParquet = new ChronosParquetFileInputFormat[PojoNac](new Path(cfgNacParquetLocation), createTypeInformation[PojoNac])
+		fifNacParquet.setFilesFilter(new EnrichmentFilePathFilter(cfgEnrichmentIgnoreOlderThan))
+		fifNacParquet.setNestedFileEnumeration(true)
+		val streamNacParquet: DataStream[EnrichmentRecord] = streamEnv
+				.readFile(fifNacParquet, cfgNacParquetLocation,
+					FileProcessingMode.PROCESS_CONTINUOUSLY, cfgEnrichmentScanInterval, cfgEnrichmentScanConsistency)
+				.uid(OperatorId.SOURCE_NAC_RAW)
+        		.map(EnrichmentRecord(_))
+				.name("Nac parquet")
+
+		// Read Atten375 Data from Feature Set
+		val cfgChronosFeatureSetLocation = appConfig.get("sources.float-featureset-parquet.path", "s3://thor-pr-data-warehouse-fttx/fttx.ams.inventory.xdsl_port/version=0/")
+		val fifChronosFeatureSet =
+			new ChronosParquetFileInputFormat[PojoChronosFeatureSetFloat](
+				new Path(cfgChronosFeatureSetLocation), createTypeInformation[PojoChronosFeatureSetFloat])
+		fifChronosFeatureSet.setFilesFilter(new EnrichmentFilePathFilter(cfgEnrichmentIgnoreOlderThan))
+		fifChronosFeatureSet.setNestedFileEnumeration(true)
+		val streamAtten375Parquet: DataStream[EnrichmentRecord] = streamEnv
+				.readFile(fifChronosFeatureSet, cfgChronosFeatureSetLocation,
+					FileProcessingMode.PROCESS_CONTINUOUSLY, cfgEnrichmentScanInterval, cfgEnrichmentScanConsistency)
+				.uid(OperatorId.SOURCE_ATTEN375_RAW)
+				.filter(_.attrname.equalsIgnoreCase("attenuation375"))
+				.map(EnrichmentRecord(_))
+				.name("Atten375 parquet")
+
+		return streamAmsFlsParquet.union(streamNacParquet).union(streamAtten375Parquet)
+	}
+
+	def readPercentilesTable(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): DataStream[Map[String, Array[Float]]] = {
+		val cfgEnrichmentScanInterval = appConfig.getLong("sources.enrichment.scan-interval", 60000L)
+		val cfgEnrichmentIgnoreOlderThan = appConfig.getLong("sources.enrichment.ignore-files-older-than-minutes", 10000) * 60 * 1000
+		val cfgPctlsJsonLocation = appConfig.get("sources.percentiles-json.path", "s3://thor-pr-data-warehouse-common/common.ipact.fls.fls7_avc_inv/version=0/")
+
+		val mapper = new ObjectMapper() with ScalaObjectMapper
+		mapper.registerModule(DefaultScalaModule)
+
+		val fifPercentiles = new TextInputFormat(new Path(cfgPctlsJsonLocation))
+		fifPercentiles.setFilesFilter(new EnrichmentFilePathFilter(cfgEnrichmentIgnoreOlderThan))
+		fifPercentiles.setNestedFileEnumeration(true)
+		val streamPctls = streamEnv
+        		.readFile(fifPercentiles, cfgPctlsJsonLocation,
+					FileProcessingMode.PROCESS_CONTINUOUSLY, cfgEnrichmentScanInterval)
+        		.uid(OperatorId.SOURCE_PERCENTILES_RAW)
+				.map({ mapper.readValue[Map[String, Object]](_) })
+        		.map(r => {
+					Map(s"${r.getOrElse("Tier","")},${r.getOrElse("Attenuation","")}"
+							-> r.getOrElse[Array[Float]]("Percentiles", Array()))
+				})
+		return streamPctls
 	}
 
 	def readEnrichmentStream(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): DataStream[EnrichmentRecord] = {
@@ -148,7 +214,7 @@ object StreamingSdcWithAverageByDslam {
 		val flsRaw = streamFlsIncremental.union(streamFlsInitial)
 			.flatMap(line => {
 				val v = line.split(",")
-				List(EnrichmentRecord(v(4).toLong,v(1),v(2),v(3),v(4)))
+				List(EnrichmentRecord(v(4).toLong,v(1),v(2),Map(EnrichmentAttributeName.AVC -> v(3),EnrichmentAttributeName.CPI -> v(4))))
 			})
 
 		return flsRaw
@@ -305,9 +371,9 @@ object StreamingSdcWithAverageByDslam {
 		//				.name("Count Dslam - Historical")
 		//
 		/** Enrich SDC Streams */
-		implicit val typeInfo = createTypeInformation[SdcRecord]
-		val outputTagI = OutputTag[SdcRawInstant]("unenrichable_i")
-		val outputTagH = OutputTag[SdcRawHistorical]("unenrichable_h")
+//		implicit val typeInfo = createTypeInformation[CopperLine]
+		val outputTagI = OutputTag[SdcEnrichedInstant]("enriched_i")
+		val outputTagH = OutputTag[SdcEnrichedHistorical]("enriched_h")
 
 		val streamEnriched: DataStream[SdcEnrichedBase] =
 			streamSdcRawInstant.map(_.asInstanceOf[SdcRawBase]).uid("Huyen1")
@@ -318,22 +384,16 @@ object StreamingSdcWithAverageByDslam {
 				.process(new EnrichSdcRecord(outputTagI, outputTagH))
 				.uid(OperatorId.SDC_ENRICHER)
 				.name("Enrich SDC records")
-		//		val streamNotEnrichableInstant = streamEnriched.getSideOutput(outputTagI)
-		//		val streamNotEnrichableHistorical = streamEnriched.getSideOutput(outputTagH)
+
+		val ruleStateDescriptor = new MapStateDescriptor(
+				"PercentilessBroadcastState",
+				BasicTypeInfo.STRING_TYPE_INFO, BasicArrayTypeInfo.FLOAT_ARRAY_TYPE_INFO);
+		val streamPctls = readPercentilesTable(appConfig, streamEnv)
+				.broadcast(ruleStateDescriptor)
 
 		/** split SDC streams into instant and historical */
-		val splits: SplitStream[SdcEnrichedBase] = streamEnriched
-			.map(a => a).split(_ match {
-			case _:SdcEnrichedInstant => List("instant")
-			case _:SdcEnrichedHistorical => List("historical")
-		})
-
-		val streamEnrichedInstant = splits.select("instant").map(_ match {
-			case i: SdcEnrichedInstant => i
-		}).uid("Split1")
-		val streamEnrichedHistorical = splits.select("historical").map(_ match {
-			case h: SdcEnrichedHistorical => h
-		}).uid("Split2")
+		val streamEnrichedInstant = streamEnriched.getSideOutput(outputTagI)
+		val streamEnrichedHistorical = streamEnriched.getSideOutput(outputTagH)
 
 		/** calculate rolling average from enrichment */
 		// todo: This section is using an experiment feature to avoid shuffle

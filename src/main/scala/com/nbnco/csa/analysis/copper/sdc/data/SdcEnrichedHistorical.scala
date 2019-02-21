@@ -60,8 +60,14 @@ case class SdcEnrichedHistorical(ts: Long,
 }
 
 object SdcEnrichedHistorical {
-    def apply(raw: SdcRawHistorical, enrich: SdcDataEnrichment): SdcEnrichedHistorical = {
-        SdcEnrichedHistorical(raw.ts, raw.dslam, raw.port, enrich, raw.data)
+    def apply(raw: SdcRawHistorical, enrich: EnrichmentData): SdcEnrichedHistorical = {
+        SdcEnrichedHistorical(raw.ts,
+            raw.dslam,
+            raw.port,
+            SdcDataEnrichment(System.currentTimeMillis(),
+                enrich.getOrElse(EnrichmentAttributeName.AVC, null).asInstanceOf[String],
+                enrich.getOrElse(EnrichmentAttributeName.CPI, null).asInstanceOf[String]),
+            raw.data)
     }
     def apply(): SdcEnrichedHistorical = SdcEnrichedHistorical(0L, "", "", SdcDataEnrichment(), SdcDataHistorical())
 

@@ -13,9 +13,8 @@ package com.nbnco.csa.analysis.copper.sdc.data
 case class SdcRawHistorical(ts: Long, dslam: String, port: String,
                             data: SdcDataHistorical
                       ) extends SdcRawBase {
-//	def this () = this (0L, "", "", SdcHistoricalData())
 
-	def enrich(enrich: SdcDataEnrichment): SdcEnrichedHistorical = {
+	def enrich(enrich: EnrichmentData): SdcEnrichedHistorical = {
 		SdcEnrichedHistorical(this, enrich)
 	}
 

@@ -1,6 +1,6 @@
 package com.nbnco.csa.analysis.copper.sdc.flink.operator
 
-import com.nbnco.csa.analysis.copper.sdc.data.EnrichmentRecord
+import com.nbnco.csa.analysis.copper.sdc.data.{EnrichmentAttributeName, EnrichmentRecord}
 import org.apache.flink.api.common.functions.FlatMapFunction
 import org.apache.flink.util.Collector
 import org.slf4j.LoggerFactory
@@ -20,10 +20,11 @@ class ParseFlsRecord extends FlatMapFunction[String, EnrichmentRecord] {
 	override def flatMap(t: String, collector: Collector[EnrichmentRecord]): Unit = {
 		val v = t.split(",")
 		try {
-			collector.collect(EnrichmentRecord(v(4).toLong, v(0),v(1),v(2),v(3)))
+			collector.collect(EnrichmentRecord(v(4).toLong, v(1), v(2),
+				Map(EnrichmentAttributeName.AVC -> v(3),EnrichmentAttributeName.CPI -> v(4))))
 		} catch {
 			case _: Throwable =>
-				ParseFlsRecord.LOG.warn("In valid fls record: {}", t)
+				ParseFlsRecord.LOG.warn("Invalid fls record: {}", t)
 		}
 	}
 }

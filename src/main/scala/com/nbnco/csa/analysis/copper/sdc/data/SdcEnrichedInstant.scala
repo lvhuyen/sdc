@@ -61,8 +61,12 @@ case class SdcEnrichedInstant(ts: Long,
 }
 
 object SdcEnrichedInstant {
-	def apply(raw: SdcRawInstant, enrich: SdcDataEnrichment): SdcEnrichedInstant = {
-		SdcEnrichedInstant(raw.ts, raw.dslam, raw.port, enrich, raw.data)
+	def apply(raw: SdcRawInstant, enrich: EnrichmentData): SdcEnrichedInstant = {
+		SdcEnrichedInstant(raw.ts, raw.dslam, raw.port,
+			SdcDataEnrichment(System.currentTimeMillis(),
+				enrich.getOrElse(EnrichmentAttributeName.AVC, null).asInstanceOf[String],
+				enrich.getOrElse(EnrichmentAttributeName.CPI, null).asInstanceOf[String]),
+			raw.data)
 	}
 	def apply(): SdcEnrichedInstant = {
 		SdcEnrichedInstant(0L, "", "", SdcDataEnrichment(), SdcDataInstant())

@@ -31,7 +31,7 @@ object SdcParquetFileSink {
 //				.build()
 //	}
 
-	def buildSinkReflect[T <: SdcRecord](outputPath: String, prefix: String, suffixFormat: String)(implicit ct: ClassTag[T]): StreamingFileSink[T] = {
+	def buildSinkReflect[T <: CopperLine](outputPath: String, prefix: String, suffixFormat: String)(implicit ct: ClassTag[T]): StreamingFileSink[T] = {
 		StreamingFileSink.forBulkFormat(new Path(outputPath), ParquetAvroWriters.forReflectRecord(ct.runtimeClass)).asInstanceOf[StreamingFileSink.BulkFormatBuilder[T, String]]
 //				.withBucketCheckInterval(3L * 60L * 1000L)
 				.withBucketAssigner(new SdcTimeBucketAssigner[T](prefix, suffixFormat))

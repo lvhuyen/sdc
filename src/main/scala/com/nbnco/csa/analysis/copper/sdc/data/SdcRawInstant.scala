@@ -15,7 +15,7 @@ case class SdcRawInstant(ts: Long, dslam: String, port: String,
 
     def this () = this (0L, "", "", SdcDataInstant())
 
-    def enrich(enrich: SdcDataEnrichment): SdcEnrichedInstant= {
+    def enrich(enrich: EnrichmentData): SdcEnrichedInstant= {
         SdcEnrichedInstant(this, enrich)
     }
     override def toMap: Map[String, Any] = {

@@ -14,7 +14,7 @@ import org.apache.flink.util.Collector
 /**
   * This RichCoFlatMapFunction is used to enrich a SdcRaw object with AVC_ID and CPI
   */
-class EnrichSdcRecord(enrichedI: OutputTag[SdcEnrichedInstant], enrichedH: OutputTag[SdcEnrichedHistorical])
+class CalculatePercentiles(enrichedI: OutputTag[SdcEnrichedInstant], enrichedH: OutputTag[SdcEnrichedHistorical])
 		extends CoProcessFunction[SdcRawBase, EnrichmentRecord, SdcEnrichedBase] {
 
 	val mappingDescriptor = new ValueStateDescriptor[EnrichmentData](

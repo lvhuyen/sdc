@@ -4,7 +4,7 @@ import java.time.{Instant, ZoneId}
 import java.time.format.DateTimeFormatter
 import java.util.Optional
 
-import com.nbnco.csa.analysis.copper.sdc.data.{SdcEnrichedBase, SdcRecord, TemporalEvent}
+import com.nbnco.csa.analysis.copper.sdc.data.{SdcEnrichedBase, CopperLine, TemporalEvent}
 import org.apache.flink.streaming.connectors.elasticsearch.{ActionRequestFailureHandler, ElasticsearchSinkBase, ElasticsearchSinkFunction, RequestIndexer}
 import org.apache.flink.api.common.functions.RuntimeContext
 import org.apache.flink.streaming.connectors.elasticsearch6.ElasticsearchSink
@@ -49,7 +49,7 @@ object SdcElasticSearchSink {
 		}
 	}
 
-	private class UpsertDataSinkFunction[T <: SdcRecord] (indexNameBuilder: (T) => String, idBuilder: T => String)
+	private class UpsertDataSinkFunction[T <: CopperLine](indexNameBuilder: (T) => String, idBuilder: T => String)
 			extends ElasticsearchSinkFunction[T] {
 		def createUpdateRequest(element: T): UpdateRequest = {
 			val data = mapAsJavaMap(element.toMap)
@@ -133,10 +133,10 @@ object SdcElasticSearchSink {
 		}
 	}
 
-	def createUpdatableSdcElasticSearchSink[T <: SdcRecord](endpoint: String, indexNamePrefix: String,
-																													bulkActions: Int, bulkSize: Int, bulkInterval: Int,
-																													flushBackoffDelay: Int,
-																													maxRetriesInNineMinutes: Int) = {
+	def createUpdatableSdcElasticSearchSink[T <: CopperLine](endpoint: String, indexNamePrefix: String,
+															 bulkActions: Int, bulkSize: Int, bulkInterval: Int,
+															 flushBackoffDelay: Int,
+															 maxRetriesInNineMinutes: Int) = {
 		val httpHosts = new java.util.ArrayList[HttpHost]
 		httpHosts.add(new HttpHost(endpoint, 443, "https"))
 

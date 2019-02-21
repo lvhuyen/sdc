@@ -18,7 +18,7 @@ package com.nbnco.csa.analysis.copper.sdc.data
 //}
 
 
-trait SdcRecord extends TemporalEvent {
+trait CopperLine extends TemporalEvent {
 	val dslam: String
 	val port: String
 //	def this ( ) = this (0L, "", "")

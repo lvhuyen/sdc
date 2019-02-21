@@ -3,7 +3,7 @@ package com.nbnco.csa.analysis.copper.sdc.data
 /**
   * Created by Huyen on 5/9/18.
   */
-class FlsRaw (var avc_id: String,
+class PojoFls(var avc_id: String,
 			  var ntd_id: String,
 			  var uni_prid: String,
 			  var access_service_tech_type: String,
