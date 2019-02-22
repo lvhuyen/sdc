@@ -19,15 +19,18 @@ case class SdcEnrichedInstant(ts: Long,
                               dslam: String,
                               port: String,
                               enrich: SdcDataEnrichment,
-                              data: SdcDataInstant
+                              data: SdcDataInstant,
+							  correctedAttndr: (Int, Int)
                              ) extends IndexedRecord with SdcEnrichedBase {
-	def this () = this (0L, "", "", SdcDataEnrichment(), SdcDataInstant())
+	def this () = this (0L, "", "", SdcDataEnrichment(), SdcDataInstant(), (-1, -1))
 
 	override def toMap: Map[String, Any] = {
 		Map (
 			"dslam" -> dslam,
 			"port" -> port,
-			"metrics_timestamp" -> ts
+			"metrics_timestamp" -> ts,
+			"correctedAttainableNetDataRateDownstream" -> correctedAttndr._1,
+			"correctedAttainableNetDataRateUpstream" -> correctedAttndr._2
 		) ++ data.toMap ++ enrich.toMap
 	}
 
@@ -51,6 +54,8 @@ case class SdcEnrichedInstant(ts: Long,
 			case 11 => data.attndr_us.asInstanceOf[AnyRef]
 			case 12 => data.attenuation_ds
 			case 13 => data.user_mac_address
+			case 14 => correctedAttndr._1.asInstanceOf[AnyRef]
+			case 15 => correctedAttndr._2.asInstanceOf[AnyRef]
 		}
 	}
 
@@ -61,33 +66,28 @@ case class SdcEnrichedInstant(ts: Long,
 }
 
 object SdcEnrichedInstant {
+	def apply(raw: SdcRawInstant, enrich: EnrichmentData, correctedAttndrDS: Int, correctedAttndrUS: Int): SdcEnrichedInstant = {
+		SdcEnrichedInstant(raw.ts, raw.dslam, raw.port,
+			SdcDataEnrichment(System.currentTimeMillis(),
+				enrich.getOrElse(EnrichmentAttributeName.AVC, null).asInstanceOf[String],
+				enrich.getOrElse(EnrichmentAttributeName.CPI, null).asInstanceOf[String]),
+			raw.data, (correctedAttndrDS, correctedAttndrUS))
+	}
 	def apply(raw: SdcRawInstant, enrich: EnrichmentData): SdcEnrichedInstant = {
 		SdcEnrichedInstant(raw.ts, raw.dslam, raw.port,
 			SdcDataEnrichment(System.currentTimeMillis(),
 				enrich.getOrElse(EnrichmentAttributeName.AVC, null).asInstanceOf[String],
 				enrich.getOrElse(EnrichmentAttributeName.CPI, null).asInstanceOf[String]),
-			raw.data)
+			raw.data, (-1, -1))
 	}
 	def apply(raw: SdcRawInstant): SdcEnrichedInstant = {
 		SdcEnrichedInstant(raw.ts, raw.dslam, raw.port,
 			SdcDataEnrichment(Long.MinValue, null, null),
-			raw.data)
+			raw.data, (-1, -1))
 	}
 	def apply(): SdcEnrichedInstant = {
-		SdcEnrichedInstant(0L, "", "", SdcDataEnrichment(), SdcDataInstant())
+		SdcEnrichedInstant(0L, "", "", SdcDataEnrichment(), SdcDataInstant(), (-1, -1))
 	}
-
-	def buildKeyForPctlsTable(enrich: EnrichmentData) = s"${
-		enrich.get(EnrichmentAttributeName.TECH_TYPE) match {
-			case TechType.FTTN =>
-				s"FTTN"
-		}
-
-		enrich.getOrElse(EnrichmentAttributeName.TECH_TYPE, "")},${
-		if (isDownStream) enrich.getOrElse(EnrichmentAttributeName.TC4_DS, "")
-		else enrich.getOrElse(EnrichmentAttributeName.TC4_US, "")},${
-
-	}"
 
 	def getSchema(): Schema = {
 		org.apache.avro.SchemaBuilder
@@ -107,6 +107,8 @@ object SdcEnrichedInstant {
 				.name("attndr_us").`type`("int").noDefault()
 				.name("attenuation_ds").`type`().nullable().intType().noDefault()
 				.name("user_mac_address").`type`().nullable().stringType().noDefault()
+				.name("correctedAttndr_ds").`type`().nullable().intType().noDefault()
+				.name("correctedAttndr_us").`type`().nullable().intType().noDefault()
 				.endRecord()
 	}
 }

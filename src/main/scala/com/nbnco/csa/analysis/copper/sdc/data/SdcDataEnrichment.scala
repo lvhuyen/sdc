@@ -7,7 +7,7 @@ case class SdcDataEnrichment(tsEnrich: Long, avcId: String, cpi: String) {
 	def toMap: Map[String, Any] = {
 		Map (
 			"enrich_timestamp" -> tsEnrich,
-			"avcid" -> avcId,
+			"avc_id" -> avcId,
 			"cpid" -> cpi
 		)
 	}

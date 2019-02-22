@@ -25,9 +25,11 @@ package object data {
 	object EnrichmentAttributeName extends Enumeration {
 		type EnrichmentAttributeName = Value
 		val AVC, CPI, TECH_TYPE, TC4_DS, TC4_US, DPBO_PROFILE, ATTEN365, NOISE_MARGIN_DS, NOISE_MARGIN_US = Value
+		val PCTLS_CURRENT_DS, PCTLS_CURRENT_US, PCTLS_CORRECTED_DS, PCTLS_CORRECTED_US = Value
 	}
 
 	type EnrichmentData = Map[EnrichmentAttributeName.Value, Any]
+	type JavaFloat = java.lang.Float
 
 
 	object TechType extends Enumeration {

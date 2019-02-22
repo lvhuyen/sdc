@@ -26,9 +26,9 @@ object EnrichmentRecord {
 
 	def apply(raw: PojoNac): EnrichmentRecord =
 		EnrichmentRecord(Long.MinValue, raw.dslam, raw.port, Map(
-			EnrichmentAttributeName.NOISE_MARGIN_DS -> raw.max_additional_noise_margin_ds.toInt,
-			EnrichmentAttributeName.NOISE_MARGIN_US -> raw.max_additional_noise_margin_us.toInt,
-			EnrichmentAttributeName.DPBO_PROFILE -> {if (raw.dpbo_profile_name.equals("ADP-VDSL_00dB")) 0 else 1}
+			EnrichmentAttributeName.NOISE_MARGIN_DS -> raw.max_additional_noise_margin_ds.toShort,
+			EnrichmentAttributeName.NOISE_MARGIN_US -> raw.max_additional_noise_margin_us.toShort,
+			EnrichmentAttributeName.DPBO_PROFILE -> {if (raw.dpbo_profile_name.equals("ADP-VDSL_00dB")) 0 else 1}.toByte
 		))
 
 	def apply(raw: PojoChronosFeatureSetFloat): EnrichmentRecord = {

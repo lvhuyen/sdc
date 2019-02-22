@@ -142,11 +142,6 @@ under the License.
 			<artifactId>json4s-jackson_${scala.binary.version}</artifactId>
 			<version>3.6.3</version>
 		</dependency>
-		<dependency>
-			<groupId>com.fasterxml.jackson.module</groupId>
-			<artifactId>jackson-module-scala_${scala.binary.version}</artifactId>
-			<version>2.9.8</version>
-		</dependency>
 		<!-- Add logging framework, to produce console output when running in the IDE. -->
 		<!-- These dependencies are excluded from the application JAR by default. -->
 		<dependency>
@@ -201,7 +196,7 @@ under the License.
 							</filters>
 							<transformers>
 								<transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-									<mainClass>com.nbnco.csa.analysis.copper.sdc.flink.StreamingSdcWithAverageByDslam</mainClass>
+									<mainClass>com.nbnco.csa.analysis.copper.sdc.flink.StreamingSdc</mainClass>
 								</transformer>
 							</transformers>
 						</configuration>

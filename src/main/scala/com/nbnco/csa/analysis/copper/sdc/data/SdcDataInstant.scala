@@ -21,7 +21,7 @@ case class SdcDataInstant(var if_admin_status: String,
             "xdslFarEndChannelAttainableNetDataRateDownstream" -> attndr_ds,
             "xdslChannelAttainableNetDataRateUpstream" -> attndr_us,
             "xdslFarEndLineLoopAttenuationDownstream" -> attenuation_ds,
-            "extendUserPortFdbUserAddress" -> user_mac_address
+            "macaddress" -> user_mac_address
         )
     }
 }

@@ -1,393 +1,532 @@
-//package com.nbnco.csa.analysis.copper.sdc.flink
-//
-//import java.util.Properties
-//
-//import com.nbnco.csa.analysis.copper.sdc.data.{FlsRecord, SdcEnrichedInstant, SdcOut, SdcRawInstant}
-//import com.nbnco.csa.analysis.copper.sdc.flink.operator.SdcTimeAssigner
-//import org.apache.flink.api.common.functions.AggregateFunction
-//import org.apache.flink.api.common.io.FilePathFilter
-//import org.apache.flink.api.common.state.{ValueState, ValueStateDescriptor}
-//import org.apache.flink.api.java.io.TextInputFormat
-//import org.apache.flink.runtime.state.filesystem.FsStateBackend
-//import org.apache.flink.streaming.api.TimeCharacteristic
-//import org.apache.flink.streaming.api.environment.CheckpointConfig.ExternalizedCheckpointCleanup
-//import org.apache.flink.streaming.api.scala._
-//import org.apache.flink.streaming.api.scala.function.{ProcessWindowFunction, WindowFunction}
-//import org.apache.flink.streaming.api.windowing.time.Time
-//import org.apache.flink.streaming.api.windowing.windows.TimeWindow
-//import org.apache.flink.util.Collector
-////import org.apache.flink.api.java.io.jdbc.JDBCInputFormat
-//import org.apache.flink.streaming.api.functions.ProcessFunction
-//import org.apache.flink.streaming.api.functions.co.RichCoFlatMapFunction
-//import org.apache.flink.streaming.api.functions.source.FileProcessingMode
-//import org.apache.flink.streaming.api.windowing.assigners.SlidingEventTimeWindows
-//import org.apache.flink.streaming.api.windowing.triggers.{Trigger, TriggerResult}
-//import org.apache.flink.streaming.connectors.kinesis.config.AWSConfigConstants
-//import org.apache.flink.streaming.connectors.kinesis.{FlinkKinesisProducer, KinesisPartitioner}
-//import org.apache.flink.streaming.util.serialization.SerializationSchema
-//
-///**
-//  * Skeleton for a Flink Streaming Job.
-//  *
-//  * To package your appliation into a JAR file for execution, run
-//  * 'mvn clean package' on the command line.
-//  *
-//  * If you change the name of the main class (with the public static void main(String[] args))
-//  * method, change the respective entry in the POM.xml file (simply search for 'mainClass').
-//  */
-//object StreamingSdc {
-//	def main(args: Array[String]) {
-//		val debug = false
-//		val parallel: Int = args.lift(0).getOrElse(if (debug) 1 else 8).toString.toInt
-//		val path_sdc = args.lift(1).getOrElse(
-//			if (debug) "file:///Users/Huyen/Desktop/SDCTest/sdc/"
-//			else "s3://assn-huyen/Test/sdc/").toString
-//		val path_enrich0 = args.lift(2).getOrElse(
-//			if (debug) "file:///Users/Huyen/Desktop/SDC/enrich/"
-//			else "s3://assn-huyen/SDC/enrich_full_csv/").toString
-//		val path_enrich1 = args.lift(3).getOrElse(
-//			if (debug) "file:///Users/Huyen/Desktop/SDCTest/enrich/"
-//			else "s3://assn-huyen/Test/enrichment/").toString
-//		val kinesis_stream = args.lift(4).getOrElse("assn-huyen").toString
-//		val kinesis_log_stream = args.lift(5).getOrElse("assn-huyen-log").toString
-//
-//		println("Streaming with the following parameters:")
-//		println(s"  SDC data: $path_sdc")
-//		println(s"  enrich_0: $path_enrich0")
-//		println(s"  enrich 1: $path_enrich1")
-//		println(s"  kinesis: $kinesis_stream")
-//		println(s"  parallelism: $parallel")
-//
-//		// set up the streaming execution environment
-//		val streamEnv = StreamExecutionEnvironment.getExecutionEnvironment
-//	        	.setStateBackend(new FsStateBackend("s3://assn-huyen/flink_ckpoint/"))
-//	        	.enableCheckpointing(1000)
-//		streamEnv.getCheckpointConfig.setMinPauseBetweenCheckpoints(500)
-//		streamEnv.getCheckpointConfig.setCheckpointTimeout(60000)
-//		streamEnv.getCheckpointConfig.setFailOnCheckpointingErrors(false)
-//		streamEnv.getCheckpointConfig.enableExternalizedCheckpoints(ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION)
-//
-//		streamEnv.setParallelism(parallel)
-//		streamEnv.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
-//
-////		val inputSchema = createTypeInformation[
-////				(String, String,
-////						Long,
-////						String, String,
-////						Int, Int,
-////						Int, Int,
-////						Int,
-////						String)]
-////		val inputformat = new RowCsvInputFormat(new org.apache.flink.core.fs.Path("file:///Users/Huyen/Desktop/SDCTest/"), Array(inputSchema))
-//
-////		import collection.JavaConverters._
-////		val inputSchema = new RowTypeInfo (
-//////			Seq(
-////				BasicTypeInfo.STRING_TYPE_INFO, BasicTypeInfo.STRING_TYPE_INFO,
-////				BasicTypeInfo.LONG_TYPE_INFO,
-////				BasicTypeInfo.STRING_TYPE_INFO, BasicTypeInfo.STRING_TYPE_INFO,
-////				BasicTypeInfo.INT_TYPE_INFO, BasicTypeInfo.INT_TYPE_INFO,
-////				BasicTypeInfo.INT_TYPE_INFO, BasicTypeInfo.INT_TYPE_INFO,
-////				BasicTypeInfo.INT_TYPE_INFO,
-////				BasicTypeInfo.STRING_TYPE_INFO
-//////			),
-//////			Seq(
-//////				"dslam", "port",
-//////				"data_time",
-//////				"if_admin_status", "if_oper_status",
-//////				"actual_ds", "actual_us",
-//////				"attndr_ds", "attndr_us",
-//////				"attenuation_ds",
-//////				"user_mac_address")
-////		)
-//
-//		val sdc_input_format = new TextInputFormat(
-//			new org.apache.flink.core.fs.Path(path_sdc))
-//		sdc_input_format.setFilesFilter(FilePathFilter.createDefaultFilter())
-//		sdc_input_format.setNestedFileEnumeration(true)
-//
-//		val fls_input_format = new TextInputFormat(
-//			new org.apache.flink.core.fs.Path(path_enrich0))
-//		fls_input_format.setFilesFilter(FilePathFilter.createDefaultFilter())
-//		fls_input_format.setNestedFileEnumeration(true)
-//
-//		val fls_input_format1 = new TextInputFormat(
-//			new org.apache.flink.core.fs.Path(path_enrich1))
-//		fls_input_format1.setFilesFilter(FilePathFilter.createDefaultFilter())
-//		fls_input_format1.setNestedFileEnumeration(true)
-//
-//		val outputTag = OutputTag[String]("malformat-output")
-//
-//		val sdcInRaw: DataStream[SdcRawInstant] = streamEnv
-//				.readFile(sdc_input_format,
-//					path_sdc,
-//					FileProcessingMode.PROCESS_CONTINUOUSLY,
-//					500L, 2000L)
-//				.process(new ProcessFunction[String, SdcRawInstant] {
-//					override def processElement(i: String, ctx: ProcessFunction[String, SdcRawInstant]#Context, collector: Collector[SdcRawInstant]) = {
-//						val v = i.split(",")
-//						try {
-//							if (v.length >= 11)
-//								collector.collect(SdcRawInstant(v(0), v(1).toLong, v(2), v(3), v(4), v(5).toInt, v(6).toInt, v(7).toInt, v(8).toInt, v(9), Some(v(10)), System.currentTimeMillis()))
-//							else
-//								ctx.output(outputTag, "incorrectLength|" + i)
-//						}
-//						catch {
-//							//	todo: log file format error here
-//							case s: Throwable => ctx.output(outputTag, s"${s.getMessage}|$i")
-//						}
-//					}
-//				})
-//		val sdcInErr = sdcInRaw.getSideOutput(outputTag)
-////				.flatMap(line => {
-////			        val v = line.split(",")
-////					try {
-////						if (v.length >= 11)
-////							List(SdcIn(v(0), v(1).toLong, v(2), v(3), v(4), v(5).toInt, v(6).toInt, v(7).toInt, v(8).toInt, Some(v(9).toInt), Some(v(10)), System.currentTimeMillis()))
-////						else None
-////					}
-////					catch {
-//////						todo: log file format error here
-////						case _ => None
-////					}
-////		        })
-////		if (output_at == 1) {
-////			println ("HELLO")
-////			sdcInRaw.map(r => r.toString)
-////					.addSink(new BucketingSink[String](kinesis_stream))
-////		}
-////		if (output_at == 11) {
-////			println ("CHAO")
-////			sdcInRaw.print()
-////		}
-//
-////		val postgres = JDBCInputFormat.buildJDBCInputFormat
-////	        	.setDrivername("Noname")
-////	        	.setDBUrl("labs-orders360-postgres.ctd5i6eczxgx.ap-southeast-2.rds.amazonaws.com")
-////	        	.setUsername("orders360_prodsupport")
-////	        	.setPassword("orders360_prodsupport")
-//
-////		streamEnv.createInput()
-//
-//		val fls2: DataStream[String] =
-//			streamEnv.readFile(fls_input_format1,
-//				path_enrich1,
-//				FileProcessingMode.PROCESS_CONTINUOUSLY,
-//				5000L
-//			)
-//
-//		val fls1: DataStream[String] =
-//			streamEnv.readFile(fls_input_format,
-//				path_enrich0,
-//				FileProcessingMode.PROCESS_ONCE,
-//				5000L
-//			)
-//		val flsRaw = fls2.union(fls1)
-//			            .flatMap(line => {
-//					        val v = line.split(",")
-//					        List(FlsRecord(v(0),v(1),v(2),v(3),v(4).toLong))
-//				        })
-////		if (output_at == 21) fls1.print()
-////		if (output_at == 22) fls2.print()
-////		if (output_at == 2) {
-////			println ("HELLO CUCKOO")
-////			flsRaw.map(r => r.toString)
-////					.addSink(new BucketingSink[String](kinesis_stream))
-////		}
-//
-//		val merge: DataStream[SdcEnrichedInstant] = sdcInRaw.connect(flsRaw)
-//	        	.keyBy(r => (r.dslam, r.port), r2 => (r2.dslam, r2.port))
-//				.flatMap(new EnrichSdcRecord)
-////		if (output_at == 3) merge.print()
-//
-//		val sdcInAverage: DataStream[SdcOut] = merge
-//				.assignTimestampsAndWatermarks(new SdcTimeAssigner[SdcEnrichedInstant])
-//	        	.keyBy(r => (r.dslam, r.port))
-//				.window(SlidingEventTimeWindows.of(Time.minutes(30), Time.minutes(15)))
-//				.allowedLateness(Time.minutes(16))
-//				.trigger(new SdcTrigger(Time.minutes(15).toMilliseconds))
-//				.aggregate(new AverageAgg, new WindowAverageAgg)
-////		if (output_at == 0) sdcInAverage.print()
-//
-////		if (output_at == 88)
-////			sdcInAverage.writeAsText(kinesis_stream, org.apache.flink.core.fs.FileSystem.WriteMode.OVERWRITE)
-////		if (output_at == 89)
-////			sdcInAverage.map(r => r.toString)
-////					.addSink(new BucketingSink[String](kinesis_stream))
-//
-//		val producerConfig = new Properties
-//		// Required configs
-//		producerConfig.put(AWSConfigConstants.AWS_REGION, "ap-southeast-2")
-//		producerConfig.put(AWSConfigConstants.AWS_CREDENTIALS_PROVIDER, "AUTO")
-//		// Optional configs
-//		producerConfig.put("AggregationMaxCount", "4294967295")
-//		producerConfig.put("CollectionMaxCount", "100") // some number between 1 and 500
-//		producerConfig.put("RecordTtl", "30000")
-//		producerConfig.put("RequestTimeout", "6000")
-//		producerConfig.put("ThreadPoolSize", "15")
-//		producerConfig.put("RateLimit", "100")
-//
-//		val kinesis = new FlinkKinesisProducer[SdcOut](
-//			new SerializationSchema[SdcOut] {
-//				def serialize(element: SdcOut) = element.toString.getBytes("UTF-8")
-//			},
-//			producerConfig)
-//		kinesis.setCustomPartitioner(
-//			new KinesisPartitioner[SdcOut] {
-//				def getPartitionId(element: SdcOut) = element.dslam})
-//
-//		kinesis.setFailOnError(false)
-//		kinesis.setDefaultStream(kinesis_stream)
-//		kinesis.setDefaultPartition("0")
-//
-//		val kinesis_log = new FlinkKinesisProducer[String](
-//			new SerializationSchema[String] {
-//				override def serialize(t: String): Array[Byte] = t.getBytes("UTF-8")
-//			}, producerConfig)
-//		kinesis_log.setFailOnError(false)
-//		kinesis_log.setDefaultStream(kinesis_log_stream)
-//		kinesis_log.setDefaultPartition("0")
-//
-//		//		if (output_at == 99){
-////			sdcInAverage.addSink(kinesis)
-////		}
-//		if (debug) {
-//				sdcInAverage.print()
-//				sdcInErr.print()
-//			}
-//		else {
-//			sdcInAverage.addSink(kinesis)
-//			sdcInErr.addSink(kinesis_log)
-////			sdcInAverage.map(r => r.toString)
-////					.addSink(new BucketingSink[String](kinesis_stream))
-//		}
-//
-//		// execute program
-//		streamEnv.execute("HUYEN's JOB")
-//	}
-//
-//	/** User-defined WindowFunction to compute the average temperature of SensorReadings */
-//	class TemperatureAverager extends WindowFunction[SdcRawInstant, SdcOut, (String, String), TimeWindow] {
-//
-//		/** apply() is invoked once for each window */
-//		override def apply(
-//				                  lineId: (String, String),
-//				                  window: TimeWindow,
-//				                  vals: Iterable[SdcRawInstant],
-//				                  out: Collector[SdcOut]): Unit = {
-//
-//			// compute the average temperature
-//			val (cnt, sum_ds, sum_us) = vals.foldLeft((0, 0.0, 0.0))((c, r) => (c._1 + 1, c._2 + r.attndr_ds, c._3 + r.attndr_us))
-//			val avg_ds = sum_ds / cnt
-//			val avg_us = sum_us / cnt
-//
-//			val latest_rec = vals.last
-//
-//			// emit a SensorReading with the average temperature
-//			out.collect(SdcOut(
-//				lineId._1, lineId._2,
-//				"AVC", "CPI",
-//				window.getEnd, window.getEnd,
-//				latest_rec.attndr_ds, latest_rec.attndr_us,
-//				cnt,
-//				avg_ds.toInt, avg_us.toInt))
-//		}
-//	}
-//
-//	class AverageAgg0 extends AggregateFunction[SdcEnrichedInstant, (Int, Int, Int, SdcEnrichedInstant), SdcOut] {
-//		override def createAccumulator() = (0, 0, 0, SdcEnrichedInstant(0,0, "","","","","","",0,0,0,0,"",None,0))
-//
-//		override def add(in: SdcEnrichedInstant, acc: (Int, Int, Int, SdcEnrichedInstant)) =
-//			(acc._1 + in.attndr_ds,
-//					acc._2 + in.attndr_us,
-//					acc._3 + 1,
-//					if (acc._4.chronos_time > in.chronos_time) acc._4 else in
-//			)
-//
-//		override def merge(acc: (Int, Int, Int, SdcEnrichedInstant), acc1: (Int, Int, Int, SdcEnrichedInstant)) =
-//			(acc._1 + acc1._1,
-//					acc._2 + acc1._2,
-//					acc._3 + acc1._3,
-//					if (acc._4.chronos_time > acc1._4.chronos_time) acc._4 else acc1._4)
-//
-//		override def getResult(acc: (Int, Int, Int, SdcEnrichedInstant)) =
-//			SdcOut(acc._4, acc._1 / acc._3, acc._2 / acc._3, acc._3)
-//	}
-//
-//	class AverageAgg extends AggregateFunction[SdcEnrichedInstant, (Int, Int, Int), (Int, Int, Int)] {
-//		override def createAccumulator() = (0, 0, 0)
-//
-//		override def add(in: SdcEnrichedInstant, acc: (Int, Int, Int)) =
-//			(acc._1 + in.attndr_ds,
-//					acc._2 + in.attndr_us,
-//					acc._3 + 1)
-//
-//		override def merge(acc: (Int, Int, Int), acc1: (Int, Int, Int)) =
-//			(acc._1 + acc1._1, acc._2 + acc1._2, acc._3 + acc1._3)
-//
-//		override def getResult(acc: (Int, Int, Int)) = {
-//			(acc._1 / acc._3, acc._2 / acc._3, acc._3)}
-//	}
-//
-//	class WindowAverageAgg extends ProcessWindowFunction[(Int, Int, Int), SdcOut, (String, String), TimeWindow] {
-//
-//		def process(key: (String, String), context: Context, averages: Iterable[(Int, Int, Int)], out: Collector[SdcOut]) = {
-//			val aver = averages.iterator.next()
-////			context.windowState.
-//			val curEvent = context.windowState.getState(new ValueStateDescriptor[SdcEnrichedInstant]("curEvent", createTypeInformation[SdcEnrichedInstant])).value()
-//			out.collect(SdcOut(curEvent, aver._1, aver._2, aver._3))
-//		}
-//	}
-//
-//	class SdcTrigger(slidingInterval: Long) extends Trigger[SdcEnrichedInstant, TimeWindow] {
-//		override def onElement(t: SdcEnrichedInstant, l: Long, w: TimeWindow, ctx: Trigger.TriggerContext): TriggerResult = {
-//			val curEvent: ValueState[SdcEnrichedInstant] = ctx.getPartitionedState(
-//				new ValueStateDescriptor[SdcEnrichedInstant]("curEvent", createTypeInformation[SdcEnrichedInstant]))
-//
-//			val triggered: ValueState[Boolean] = ctx.getPartitionedState(
-//				new ValueStateDescriptor[Boolean]("triggered", createTypeInformation[Boolean]))
-//
-//			curEvent.update(t)
-//
-//			if (triggered.value())
-//				TriggerResult.FIRE
-//			else if (l >= w.getEnd - slidingInterval) {
-//				triggered.update(true)
-//				TriggerResult.FIRE
-//			}
-//			else TriggerResult.CONTINUE
-//		}
-//
-//		override def onEventTime(l: Long, w: TimeWindow, ctx: Trigger.TriggerContext) = {
-//			TriggerResult.PURGE
-//		}
-//
-//		override def clear(w: TimeWindow, ctx: Trigger.TriggerContext) = {
-//			ctx.getPartitionedState(
-//				new ValueStateDescriptor[SdcEnrichedInstant]("curEvent", createTypeInformation[SdcEnrichedInstant])).clear()
-//			ctx.getPartitionedState(
-//				new ValueStateDescriptor[Boolean]("triggered", createTypeInformation[Boolean])).clear()
-//		}
-//
-//		override def onProcessingTime(l: Long, w: TimeWindow, triggerContext: Trigger.TriggerContext) = TriggerResult.CONTINUE
-//	}
-//
-//	class EnrichSdcRecord extends RichCoFlatMapFunction[SdcRawInstant, FlsRecord, SdcEnrichedInstant] {
-//		val mappingDescriptor = new ValueStateDescriptor[(String, String, Long)]("mapping", classOf[(String, String, Long)])
-//		mappingDescriptor.setQueryable("Enrichment")
-//
-//		override def flatMap1(in1: SdcRawInstant, out: Collector[SdcEnrichedInstant]): Unit = {
-//			val mapping = getRuntimeContext.getState(mappingDescriptor).value
-//			val (avc_id, cpi, enrichment_date) =
-//				if (mapping != null) (mapping._1, mapping._2, mapping._3)
-//				else ("AVC", "CPI", 0L)
-//			out.collect(SdcEnrichedInstant(in1, avc_id, cpi, enrichment_date))
-//		}
-//
-//		override def flatMap2(in2: FlsRecord, out: Collector[SdcEnrichedInstant]): Unit = {
-//			val mapping = getRuntimeContext.getState(mappingDescriptor)
-//			if (mapping.value == null || mapping.value._3 < in2.metrics_date)
-//					mapping.update((in2.avc_id, in2.cpi, in2.metrics_date))
-//		}
-//	}
-//}
+package com.nbnco.csa.analysis.copper.sdc.flink
+
+import java.time.Instant
+
+import com.nbnco.csa.analysis.copper.sdc.data._
+import com.nbnco.csa.analysis.copper.sdc.flink.operator._
+import com.nbnco.csa.analysis.copper.sdc.flink.sink.{SdcElasticSearchSink, SdcParquetFileSink}
+import com.nbnco.csa.analysis.copper.sdc.flink.source._
+import org.apache.flink.api.common.io.FilePathFilter
+import org.apache.flink.api.common.state.MapStateDescriptor
+import org.apache.flink.api.common.typeinfo.{BasicArrayTypeInfo, BasicTypeInfo}
+import org.apache.flink.api.java.io.TextInputFormat
+import org.apache.flink.api.java.utils.ParameterTool
+import org.apache.flink.contrib.streaming.state.RocksDBStateBackend
+import org.apache.flink.core.fs.Path
+import org.apache.flink.streaming.api.environment.CheckpointConfig.ExternalizedCheckpointCleanup
+import org.apache.flink.streaming.api.functions.source.FileProcessingMode
+import org.apache.flink.streaming.api.scala.{DataStream, _}
+import org.apache.flink.streaming.api.windowing.assigners.{EventTimeSessionWindows}
+import org.apache.flink.streaming.api.windowing.time.Time
+import org.apache.flink.streaming.api.{CheckpointingMode, TimeCharacteristic}
+
+object StreamingSdc {
+	object OperatorId {
+		val SOURCE_SDC_INSTANT = "Source_Sdc_Instant"
+		val SOURCE_SDC_HISTORICAL = "Source_Sdc_Historical"
+		val SOURCE_FLS_INITIAL = "Source_Fls_Initial"
+		val SOURCE_FLS_INCREMENTAL = "Source_Fls_Incremental"
+		val SOURCE_FLS_RAW = "Source_Fls_Raw"
+		val SOURCE_AMS_RAW = "Source_Ams_Raw"
+		val SOURCE_NAC_RAW = "Source_Nac_Raw"
+		val SOURCE_ATTEN375_RAW = "Source_Atten375_Raw"
+		val SOURCE_PERCENTILES_RAW = "Source_Percentiles_Raw"
+		val SINK_ELASTIC_ENRICHMENT = "Elastic_Enrichment"
+		val SINK_ELASTIC_COMBINED = "Elastic_Combined"
+		val SINK_ELASTIC_AVERAGE = "Elastic_Average"
+		val SINK_ELASTIC_UNENRICHABLE = "Elastic_Unenrichable"
+		val SINK_ELASTIC_METADATA = "Elastic_Dslam_Metadata"
+		val SINK_ELASTIC_MISSING_I = "Elastic_Dslam_Missing_Instant"
+		val SINK_ELASTIC_MISSING_H = "Elastic_Dslam_Missing_Historical"
+		val SINK_PARQUET_INSTANT = "S3_Parquet_Instant"
+		val SINK_PARQUET_HISTORICAL = "S3_Parquet_Historical"
+		val SINK_PARQUET_METADATA = "S3_Parquet_Metadata"
+		val SINK_PARQUET_UNENRICHABLE_I = "S3_Parquet_Unenrichable_Instant"
+		val SINK_PARQUET_UNENRICHABLE_H = "S3_Parquet_Unenrichable_Historical"
+		val SDC_ENRICHER = "Sdc_Enricher"
+		val SDC_AVERAGER = "Sdc_Averager"
+		val SDC_COMBINER = "Sdc_Combiner"
+		val STATS_COUNT_HISTORICAL = "Stats_Count_Historical"
+		val STATS_COUNT_INSTANT = "Stats_Count_Instant"
+		val STATS_MISSING_DSLAM_HISTORICAL = "Stats_Missing_Dslam_Historical"
+		val STATS_MISSING_DSLAM_INSTANT = "Stats_Missing_Dslam_Instant"
+		val AMS_FLS_MERGER = "Ams_Fls_Merger"
+		val SDC_PARSER_HISTORICAL = "Sdc_Parser_Historical"
+		val SDC_PARSER_INSTANT = "Sdc_Parser_Instant"
+	}
+
+	def initEnvironment(appConfig: ParameterTool): StreamExecutionEnvironment = {
+		val cfgParallelism = appConfig.getInt("parallelism", 32)
+		val cfgTaskTimeoutInterval = appConfig.getLong("task-timeout-interval", 30000)
+		val cfgCheckpointEnabled = appConfig.getBoolean("checkpoint.enabled", true)
+		val cfgCheckpointLocation = appConfig.get("checkpoint.path", "s3://assn-csa-prod-telemetry-data-lake/TestData/Spike/Huyen/SDC/ckpoint/")
+		val cfgCheckpointInterval = appConfig.getLong("checkpoint.interval", 800000L)
+		val cfgCheckpointTimeout = appConfig.getLong("checkpoint.timeout", 600000L)
+		val cfgCheckpointMinPause = appConfig.getLong("checkpoint.minimum-pause", 600000L)
+		val cfgCheckpointStopJobWhenFail = appConfig.getBoolean("checkpoint.stop-job-when-fail", true)
+
+		val streamEnv =
+			if (cfgCheckpointEnabled) StreamExecutionEnvironment.getExecutionEnvironment
+					.setStateBackend(new RocksDBStateBackend(cfgCheckpointLocation, true))
+					.enableCheckpointing(cfgCheckpointInterval)
+			else StreamExecutionEnvironment.getExecutionEnvironment
+		if (cfgCheckpointEnabled) {
+			streamEnv.getCheckpointConfig.setMinPauseBetweenCheckpoints(cfgCheckpointMinPause)
+			streamEnv.getCheckpointConfig.setCheckpointTimeout(cfgCheckpointTimeout)
+			streamEnv.getCheckpointConfig.setFailOnCheckpointingErrors(cfgCheckpointStopJobWhenFail)
+			streamEnv.getCheckpointConfig.enableExternalizedCheckpoints(ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION)
+			streamEnv.getCheckpointConfig.setCheckpointingMode(CheckpointingMode.EXACTLY_ONCE)
+		}
+		streamEnv.getConfig.setTaskCancellationInterval(cfgTaskTimeoutInterval)
+		streamEnv.setParallelism(cfgParallelism)
+		streamEnv.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
+
+		return streamEnv
+	}
+
+	def readEnrichmentData(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): DataStream[EnrichmentRecord] = {
+		val cfgEnrichmentScanInterval = appConfig.getLong("sources.enrichment.scan-interval", 60000L)
+		val cfgEnrichmentScanConsistency = appConfig.getLong("sources.fls-parquet.scan-consistency-offset", 0L)
+		val cfgEnrichmentIgnoreOlderThan = appConfig.getLong("sources.enrichment.ignore-files-older-than-minutes", 10000) * 60 * 1000
+
+		val cfgFlsParquetLocation = appConfig.get("sources.fls-parquet.path", "s3://thor-pr-data-warehouse-common/common.ipact.fls.fls7_avc_inv/version=0/")
+		val cfgAmsParquetLocation = appConfig.get("sources.ams-parquet.path", "s3://thor-pr-data-warehouse-fttx/fttx.ams.inventory.xdsl_port/version=0/")
+
+		// Read FLS Data
+		val fifFlsParquet = new ChronosParquetFileInputFormat[PojoFls](new Path(cfgFlsParquetLocation), createTypeInformation[PojoFls])
+		fifFlsParquet.setFilesFilter(new EnrichmentFilePathFilter(cfgEnrichmentIgnoreOlderThan))
+		fifFlsParquet.setNestedFileEnumeration(true)
+		val streamFlsParquet: DataStream[RawFls] = streamEnv
+				.readFile(fifFlsParquet, cfgFlsParquetLocation,
+					FileProcessingMode.PROCESS_CONTINUOUSLY, cfgEnrichmentScanInterval, cfgEnrichmentScanConsistency)
+				.uid(OperatorId.SOURCE_FLS_RAW)
+				.map(RawFls(_))
+				.filter(!_.equals(RawFls.UNKNOWN))
+				.name("FLS parquet")
+
+		// Read AMS Data
+		val fifAmsParquet = new ChronosParquetFileInputFormat[PojoAms](new Path(cfgAmsParquetLocation), createTypeInformation[PojoAms])
+		fifAmsParquet.setFilesFilter(new EnrichmentFilePathFilter(cfgEnrichmentIgnoreOlderThan))
+		fifAmsParquet.setNestedFileEnumeration(true)
+		val streamAmsParquet: DataStream[RawAms] = streamEnv
+				.readFile(fifAmsParquet, cfgAmsParquetLocation,
+					FileProcessingMode.PROCESS_CONTINUOUSLY, cfgEnrichmentScanInterval, cfgEnrichmentScanConsistency)
+				.uid(OperatorId.SOURCE_AMS_RAW)
+				.map(RawAms(_))
+				.filter(!_.dslam.isEmpty)
+				.name("AMS parquet")
+
+		// Join AMS with FLS
+		val streamAmsFlsParquet = streamAmsParquet.connect(streamFlsParquet)
+				.keyBy(_.uni_prid, _.uni_prid)
+				.flatMap(new MergeAmsFls)
+				.uid(OperatorId.AMS_FLS_MERGER)
+				.name("Merge AMS & FLS parquet")
+
+		// Read Nac Data
+		val cfgNacParquetLocation = appConfig.get("sources.nac-parquet.path", "s3://assn-csa-prod-telemetry-data-lake/PROD/RAW/NAC/NAC_ports/version=0/")
+
+		val fifNacParquet = new ChronosParquetFileInputFormat[PojoNac](new Path(cfgNacParquetLocation), createTypeInformation[PojoNac])
+		fifNacParquet.setFilesFilter(new EnrichmentFilePathFilter(cfgEnrichmentIgnoreOlderThan))
+		fifNacParquet.setNestedFileEnumeration(true)
+		val streamNacParquet: DataStream[EnrichmentRecord] = streamEnv
+				.readFile(fifNacParquet, cfgNacParquetLocation,
+					FileProcessingMode.PROCESS_CONTINUOUSLY, cfgEnrichmentScanInterval, cfgEnrichmentScanConsistency)
+				.uid(OperatorId.SOURCE_NAC_RAW)
+				.map(EnrichmentRecord(_))
+				.name("Nac parquet")
+
+		// Read Atten375 Data from Feature Set
+		val cfgChronosFeatureSetLocation = appConfig.get("sources.float-featureset-parquet.path", "s3://assn-csa-prod-telemetry-data-lake/PROD/FEATURES/fttxFeatureSet/valType=float/")
+		val fifChronosFeatureSet =
+			new ChronosParquetFileInputFormat[PojoChronosFeatureSetFloat](
+				new Path(cfgChronosFeatureSetLocation), createTypeInformation[PojoChronosFeatureSetFloat])
+		fifChronosFeatureSet.setFilesFilter(new EnrichmentFilePathFilter(cfgEnrichmentIgnoreOlderThan))
+		fifChronosFeatureSet.setNestedFileEnumeration(true)
+		val streamAtten375Parquet: DataStream[EnrichmentRecord] = streamEnv
+				.readFile(fifChronosFeatureSet, cfgChronosFeatureSetLocation,
+					FileProcessingMode.PROCESS_CONTINUOUSLY, cfgEnrichmentScanInterval, cfgEnrichmentScanConsistency)
+				.uid(OperatorId.SOURCE_ATTEN375_RAW)
+				.filter(_.attrname.equalsIgnoreCase("attenuation375"))
+				.map(EnrichmentRecord(_))
+				.name("Atten375 parquet")
+
+		return streamAmsFlsParquet.union(streamNacParquet).union(streamAtten375Parquet)
+	}
+
+	def readPercentilesTable(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment) = {
+		val cfgEnrichmentScanInterval = appConfig.getLong("sources.enrichment.scan-interval", 60000L)
+		val cfgEnrichmentIgnoreOlderThan = appConfig.getLong("sources.enrichment.ignore-files-older-than-minutes", 10000) * 60 * 1000
+		val cfgPctlsJsonLocation = appConfig.get("sources.percentiles-json.path", "s3://assn-csa-prod-telemetry-data-lake/PROD/REFERENCE/AttNDRPercentilesLatest/")
+
+		val fifPercentiles = new TextInputFormat(new Path(cfgPctlsJsonLocation))
+		fifPercentiles.setFilesFilter(new EnrichmentFilePathFilter(cfgEnrichmentIgnoreOlderThan))
+		fifPercentiles.setNestedFileEnumeration(true)
+		val streamPctls = streamEnv
+				.readFile(fifPercentiles, cfgPctlsJsonLocation,
+					FileProcessingMode.PROCESS_CONTINUOUSLY, cfgEnrichmentScanInterval)
+				.uid(OperatorId.SOURCE_PERCENTILES_RAW)
+				.flatMap(new ParsePercentilesRecord())
+		streamPctls
+	}
+
+	def readEnrichmentStream(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): DataStream[EnrichmentRecord] = {
+		val cfgFlsInitialLocation = appConfig.get("sources.fls-initial.path", "file:///Users/Huyen/Desktop/SDC/enrich/")
+		val cfgFlsIncrementalLocation = appConfig.get("sources.fls-incremental.path", "file:///Users/Huyen/Desktop/SDCTest/enrich/")
+
+		val ifFlsInitialCsv = new TextInputFormat(
+			new org.apache.flink.core.fs.Path(cfgFlsInitialLocation))
+		ifFlsInitialCsv.setFilesFilter(FilePathFilter.createDefaultFilter())
+		ifFlsInitialCsv.setNestedFileEnumeration(true)
+		val streamFlsInitial: DataStream[String] =
+			streamEnv.readFile(ifFlsInitialCsv, cfgFlsIncrementalLocation,
+				FileProcessingMode.PROCESS_CONTINUOUSLY, 5000L)
+					.uid(OperatorId.SOURCE_FLS_INITIAL)
+					.name("Initial FLS stream")
+
+		val ifFlsIncrementalCsv = new TextInputFormat(
+			new org.apache.flink.core.fs.Path(cfgFlsIncrementalLocation))
+		ifFlsIncrementalCsv.setFilesFilter(FilePathFilter.createDefaultFilter())
+		ifFlsIncrementalCsv.setNestedFileEnumeration(true)
+		val streamFlsIncremental: DataStream[String] =
+			streamEnv.readFile(ifFlsIncrementalCsv, cfgFlsInitialLocation,
+				FileProcessingMode.PROCESS_CONTINUOUSLY, 5000L)
+					.uid(OperatorId.SOURCE_FLS_INCREMENTAL)
+					.name("Incremental FLS stream")
+
+		val flsRaw = streamFlsIncremental.union(streamFlsInitial)
+				.flatMap(line => {
+					val v = line.split(",")
+					List(EnrichmentRecord(v(4).toLong,v(1),v(2),Map(EnrichmentAttributeName.AVC -> v(3),EnrichmentAttributeName.CPI -> v(4))))
+				})
+
+		return flsRaw
+	}
+
+	def readHistoricalData(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): (DataStream[DslamMetadata], DataStream[SdcRawHistorical]) = {
+		val cfgSdcHistoricalLocation = appConfig.get("sources.sdc-historical.path", "s3://thor-pr-data-raw-fttx/fttx.sdc.copper.history.combined/")
+		val cfgSdcHistoricalScanInterval = appConfig.getLong("sources.sdc-historical.scan-interval", 10000L)
+		val cfgSdcHistoricalScanConsistency = appConfig.getLong("sources.sdc-historical.scan-consistency-offset", 2000L)
+		val cfgSdcHistoricalIgnore = appConfig.getLong("sources.sdc-historical.ignore-files-older-than-minutes", 10000) * 60 * 1000
+
+		implicit val hParser: SdcParser[SdcRawHistorical] = SdcRawHistorical
+
+		val pathSdcHistorical = new org.apache.flink.core.fs.Path(cfgSdcHistoricalLocation)
+		val fifSdcHistorical = new SdcTarInputFormat(pathSdcHistorical, false, "Historical")
+		fifSdcHistorical.setFilesFilter(new SdcFilePathFilter(cfgSdcHistoricalIgnore))
+		fifSdcHistorical.setNestedFileEnumeration(true)
+		val streamDslamHistorical = streamEnv
+				.readFile(fifSdcHistorical,
+					cfgSdcHistoricalLocation,
+					FileProcessingMode.PROCESS_CONTINUOUSLY,
+					cfgSdcHistoricalScanInterval, cfgSdcHistoricalScanConsistency)
+				.uid(OperatorId.SOURCE_SDC_HISTORICAL)
+				.assignTimestampsAndWatermarks(new DslamRecordTimeAssigner[String])
+				.name("Read SDC Historical")
+		val streamSdcRawHistorical: DataStream[SdcRawHistorical] = streamDslamHistorical
+				.flatMap(new ParseSdcRecord[SdcRawHistorical]())
+				.uid(OperatorId.SDC_PARSER_HISTORICAL)
+				.name("Parse SDC Historical")
+
+		return (streamDslamHistorical.map(r => r.metadata).uid("Metadata_Extract_Historical"),
+				streamSdcRawHistorical)
+	}
+
+	def readInstantData(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): (DataStream[DslamMetadata], DataStream[SdcRawInstant]) = {
+		val cfgSdcInstantLocation = appConfig.get("sources.sdc-instant.path", "s3://thor-pr-data-raw-fttx/fttx.sdc.copper.history.combined/instant")
+		val cfgSdcInstantScanInterval = appConfig.getLong("sources.sdc-instant.scan-interval", 10000L)
+		val cfgSdcInstantScanConsistency = appConfig.getLong("sources.sdc-instant.scan-consistency-offset", 2000L)
+		val cfgSdcInstantIgnore = appConfig.getLong("sources.sdc-instant.ignore-files-older-than-minutes", 10000) * 60 * 1000
+
+		implicit val iParser: SdcParser[SdcRawInstant] = SdcRawInstant
+
+		val pathSdcInstant = new org.apache.flink.core.fs.Path(cfgSdcInstantLocation)
+		val fifSdcInstant = new SdcTarInputFormat(pathSdcInstant, true, "Instant")
+		fifSdcInstant.setFilesFilter(new SdcFilePathFilter(cfgSdcInstantIgnore))
+		fifSdcInstant.setNestedFileEnumeration(true)
+		val streamDslamInstant = streamEnv
+				.readFile(fifSdcInstant,
+					cfgSdcInstantLocation,
+					FileProcessingMode.PROCESS_CONTINUOUSLY,
+					cfgSdcInstantScanInterval, cfgSdcInstantScanConsistency)
+				.uid(OperatorId.SOURCE_SDC_INSTANT)
+				.assignTimestampsAndWatermarks(new DslamRecordTimeAssigner[String])
+				.name("Read SDC Instant")
+		val streamSdcRawInstant: DataStream[SdcRawInstant] = streamDslamInstant
+				.flatMap(new ParseSdcRecord[SdcRawInstant])
+				.uid(OperatorId.SDC_PARSER_INSTANT)
+				.name("Parse SDC Instant")
+				.filter(r => !r.data.if_admin_status.equalsIgnoreCase("down"))
+				.uid(OperatorId.SDC_PARSER_INSTANT + "_1")
+
+		return (streamDslamInstant.map(_.metadata).uid("Metadata_Extract_Instant"),
+				streamSdcRawInstant)
+	}
+
+	def main(args: Array[String]) {
+
+		/** Read configuration */
+		val configFile = ParameterTool.fromArgs(args).get("configFile", "dev.properties")
+
+		import java.net.URI
+		val fs = org.apache.flink.core.fs.FileSystem.get(URI.create(configFile))
+		val appConfig = ParameterTool.fromPropertiesFile(fs.open(new Path(configFile)))
+		val debug = appConfig.getBoolean("debug", false)
+
+		val cfgElasticSearchEndpoint = appConfig.get("sink.elasticsearch.endpoint", "vpc-assn-dev-chronos-devops-pmwehr2e7xujnadk53jsx4bjne.ap-southeast-2.es.amazonaws.com")
+		val cfgElasticSearchBulkActions = appConfig.getInt("sink.elasticsearch.bulk-actions", 10000)
+		val cfgElasticSearchBulkSize = appConfig.getInt("sink.elasticsearch.bulk-size-mb", 10)
+		val cfgElasticSearchMaxRetries = appConfig.getInt("sink.elasticsearch.max-retries-in-nine-minutes", 3 * cfgElasticSearchBulkActions)
+		val cfgElasticSearchBulkInterval = appConfig.getInt("sink.elasticsearch.bulk-interval-ms", 60000)
+		val cfgElasticSearchBackoffDelay = appConfig.getInt("sink.elasticsearch.bulk-flush-backoff-delay-ms", 100)
+
+		val cfgElasticSearchCombinedSdcEnabled = appConfig.getBoolean("sink.elasticsearch.sdc.enabled", false)
+		val cfgElasticSearchCombinedSdcIndexName = appConfig.get("sink.elasticsearch.sdc.index-name", "copper-sdc-combined-default")
+		val cfgElasticSearchCombinedSdcParallelism = appConfig.getInt("sink.elasticsearch.sdc.parallelism", 4)
+
+		val cfgElasticSearchAverageEnabled = appConfig.getBoolean("sink.elasticsearch.average.enabled", false)
+		val cfgElasticSearchAverageIndexName = appConfig.get("sink.elasticsearch.average.index-name", "copper-sdc-combined-default")
+		val cfgElasticSearchAverageParallelism = appConfig.getInt("sink.elasticsearch.average.parallelism", 4)
+
+		val cfgElasticSearchEnrichmentEnabled = appConfig.getBoolean("sink.elasticsearch.enrichment.enabled", false)
+		val cfgElasticSearchEnrichmentIndexName = appConfig.get("sink.elasticsearch.enrichment.index-name", "copper-enrichment-default")
+		val cfgElasticSearchEnrichmentParallelism = appConfig.getInt("sink.elasticsearch.enrichment.parallelism", 1)
+
+		val cfgElasticSearchUnenrichableEnabled = appConfig.getBoolean("sink.elasticsearch.unenrichable.enabled", false)
+		val cfgElasticSearchUnenrichableIndexName = appConfig.get("sink.elasticsearch.unenrichable.index-name", "copper-sdc-unenrichable-default")
+		val cfgElasticSearchUnenrichableParallelism = appConfig.getInt("sink.elasticsearch.unenrichable.parallelism", 2)
+
+		val cfgElasticSearchStatsEnabled = appConfig.getBoolean("sink.elasticsearch.stats.enabled", false)
+		val cfgElasticSearchStatsDslamMetaIndexName = appConfig.get("sink.elasticsearch.stats.dslam-meta.index-name", "copper-sdc-dslam-metadata")
+		val cfgElasticSearchStatsMissingInstantIndexName = appConfig.get("sink.elasticsearch.stats.missing-instant.index-name", "copper-sdc-dslam-missing-instant")
+		val cfgElasticSearchStatsMissingHistoricalIndexName = appConfig.get("sink.elasticsearch.stats.missing-historical.index-name", "copper-sdc-dslam-missing-historical")
+
+		val cfgRollingAverageWindowInterval = appConfig.getLong("rolling-average.window-interval-minutes", 120)
+		val cfgRollingAverageSlideInterval = appConfig.getLong("rolling-average.slide-interval-minutes", 15)
+		val cfgRollingAverageAllowedLateness = appConfig.getLong("rolling-average.allowed-lateness-minutes", 600)
+
+		val cfgParquetEnabled = appConfig.getBoolean("sink.parquet.enabled", false)
+		val cfgParquetParallelism = appConfig.getInt("sink.parquet.parallelism", 4)
+		val cfgParquetPrefix = appConfig.get("sink.parquet.prefix", "")
+		val cfgParquetSuffixFormat = appConfig.get("sink.parquet.suffixFormat", "yyyy-MM-dd-hh")
+		val cfgParquetInstantPath = appConfig.get("sink.parquet.instant.path", "file:///Users/Huyen/Desktop/SDCTest/output/instant")
+		val cfgParquetHistoricalPath = appConfig.get("sink.parquet.historical.path", "file:///Users/Huyen/Desktop/SDCTest/output/historical")
+		val cfgParquetMetadataPath = appConfig.get("sink.parquet.metadata", "file:///Users/Huyen/Desktop/SDCTest/output/metadata")
+
+		/** set up the streaming execution environment */
+		val streamEnv = initEnvironment(appConfig)
+
+		/** Read fls, ams, and merge them to create enrichment stream */
+		val streamEnrichmentAgg = readEnrichmentData(appConfig, streamEnv)
+		//  		.union(readEnrichmentStream(appConfig, streamEnv))
+
+		/** Read SDC streams */
+		val (streamDslamMetadataInstant, streamSdcRawInstant) = readInstantData(appConfig, streamEnv)
+		val (streamDslamMetadataHistorical, streamSdcRawHistorical) = readHistoricalData(appConfig, streamEnv)
+
+		/** Find missing DSLAM */
+		lazy val streamDslamMissingInstant = streamDslamMetadataInstant
+				.keyBy(_.name)
+				.window(EventTimeSessionWindows.withGap(Time.minutes(2 * cfgRollingAverageSlideInterval)))
+				.allowedLateness(Time.minutes(cfgRollingAverageAllowedLateness))
+				.aggregate(new IdentifyMissingDslam.AggIncremental, new IdentifyMissingDslam.AggFinal)
+				.uid(OperatorId.STATS_MISSING_DSLAM_INSTANT)
+				.name("Identify missing Dslam - Instant")
+
+		lazy val streamDslamMissingHistorical = streamDslamMetadataHistorical
+				.keyBy(_.name)
+				.window(EventTimeSessionWindows.withGap(Time.minutes(2 * cfgRollingAverageSlideInterval)))
+				.allowedLateness(Time.minutes(cfgRollingAverageAllowedLateness))
+				.aggregate(new IdentifyMissingDslam.AggIncremental, new IdentifyMissingDslam.AggFinal)
+				.uid(OperatorId.STATS_MISSING_DSLAM_HISTORICAL)
+				.name("Identify missing Dslam - Historical")
+
+		/** Enrich SDC Streams */
+		val outputTagI = OutputTag[SdcEnrichedInstant]("enriched_i")
+		val outputTagH = OutputTag[SdcEnrichedHistorical]("enriched_h")
+
+//		val streamEnriched: DataStream[SdcEnrichedBase] =
+//			streamSdcRawInstant.map(_.asInstanceOf[SdcRawBase]).uid("Huyen1")
+//					.union(streamSdcRawHistorical.map(_.asInstanceOf[SdcRawBase]).uid("Huyen2"))
+//					.keyBy(r => (r.dslam, r.port))
+//					.connect(streamEnrichmentAgg.keyBy(r => (r.dslam, r.port)))
+//					.process(new EnrichSdcRecord(outputTagI, outputTagH))
+//					.uid(OperatorId.SDC_ENRICHER)
+//					.name("Enrich SDC records")
+
+		val ruleStateDescriptor = new MapStateDescriptor(
+			"PercentilessBroadcastState",
+			BasicTypeInfo.STRING_TYPE_INFO, BasicArrayTypeInfo.FLOAT_ARRAY_TYPE_INFO);
+		val streamPctls = readPercentilesTable(appConfig, streamEnv)
+		val streamPctlsBroadcast = streamPctls.broadcast(ruleStateDescriptor)
+
+		val streamEnriched: DataStream[SdcEnrichedBase] =
+			streamSdcRawInstant.map(_.asInstanceOf[CopperLine]).uid("Huyen1")
+					.union(streamSdcRawHistorical.map(_.asInstanceOf[CopperLine]).uid("Huyen2"))
+					.union(streamEnrichmentAgg.map(_.asInstanceOf[CopperLine]).uid("Huyen3"))
+					.keyBy(r => (r.dslam, r.port))
+					.connect(streamPctlsBroadcast)
+					.process(new EnrichSdcRecord(outputTagI, outputTagH))
+					.uid(OperatorId.SDC_ENRICHER)
+					.name("Enrich SDC records")
+
+
+		/** split SDC streams into instant and historical */
+		val streamEnrichedInstant = streamEnriched.getSideOutput(outputTagI)
+		val streamEnrichedHistorical = streamEnriched.getSideOutput(outputTagH)
+
+		/** Output */
+
+		if (debug) {
+			if (cfgParquetEnabled) {
+				streamEnrichedInstant.addSink(
+					SdcParquetFileSink.buildSinkGeneric[SdcEnrichedInstant](SdcEnrichedInstant.getSchema(),
+						cfgParquetInstantPath, cfgParquetPrefix, cfgParquetSuffixFormat))
+						.setParallelism(cfgElasticSearchAverageParallelism)
+				streamEnrichedHistorical.addSink(
+					SdcParquetFileSink.buildSinkGeneric[SdcEnrichedHistorical](SdcEnrichedHistorical.getSchema(),
+						cfgParquetHistoricalPath, cfgParquetPrefix, cfgParquetSuffixFormat))
+						.setParallelism(cfgElasticSearchAverageParallelism)
+			}
+//			streamSdcRawHistorical.print()
+			//			streamSdcRawInstant.print()
+			//			streamEnrichment.print()
+//			streamEnrichedInstant.print()
+//			streamEnrichmentAgg.print()
+			streamEnriched.print()
+//			streamPctls.print()
+			//			streamEnrichment.map(_.toString).print()
+			//			streamEnriched.print()
+			//			streamNotEnrichable.print()
+			//			if (cfgElasticSearchAverageEnabled) streamAverage.filter(s => s.enrich.avcId.equals("AVC000066198558")).print()
+			//			streamSdcRawInstant.map(_.toString).addSink(SdcParquetFileSink.buildSink("file:///Users/Huyen/Desktop/SDCTest/output"))
+			//			streamSdcRawInstant.addSink(SdcParquetFileSink.buildSink[SdcRawInstant](cfgParquetInstantPath, cfgParquetPrefix, cfgParquetSuffixFormat))
+			//			streamEnriched
+			//					.addSink(SdcElasticSearchSink.createSink[SdcEnriched](cfgElasticSearchEndpoint,
+			//						cfgElasticSearchCombinedSdcIndexName,
+			//						cfgElasticSearchBulkInterval,
+			//						cfgElasticSearchMaxRetries))
+			//					.uid(OperatorId.SINK_ELASTIC_COMBINED)
+			//			streamEnrichedInstant.print()
+			//			averageInstant.print()
+			//			combined.print()
+			//			combined.map(r=>r.toString).addSink(ElasticSearch.createSink())
+			//			sdcInErr.print()
+		} else {
+			if (cfgElasticSearchCombinedSdcEnabled)
+				streamEnriched
+						.addSink(SdcElasticSearchSink.createUpdatableSdcElasticSearchSink[SdcEnrichedBase](
+							cfgElasticSearchEndpoint,
+							cfgElasticSearchCombinedSdcIndexName,
+							cfgElasticSearchBulkActions,
+							cfgElasticSearchBulkSize,
+							cfgElasticSearchBulkInterval,
+							cfgElasticSearchBackoffDelay,
+							cfgElasticSearchMaxRetries))
+						.setParallelism(cfgElasticSearchCombinedSdcParallelism)
+						.uid(OperatorId.SINK_ELASTIC_COMBINED)
+						.name("ES - Combined")
+
+			if (cfgElasticSearchEnrichmentEnabled)
+				streamEnrichmentAgg
+						.addSink(SdcElasticSearchSink.createElasticSearchSink[EnrichmentRecord](
+							cfgElasticSearchEndpoint,
+							r => cfgElasticSearchEnrichmentIndexName,
+							r => r.toMap,
+							r => s"${r.dslam}_${r.port}",
+							cfgElasticSearchBulkActions,
+							cfgElasticSearchBulkSize,
+							cfgElasticSearchBulkInterval,
+							cfgElasticSearchBackoffDelay,
+							cfgElasticSearchMaxRetries))
+						.setParallelism(cfgElasticSearchEnrichmentParallelism)
+						.uid(OperatorId.SINK_ELASTIC_ENRICHMENT)
+						.name("ES - Enrichment")
+
+			//			if (cfgElasticSearchUnenrichableEnabled)
+			//				streamNotEnrichableHistorical
+			//					.addSink(SdcElasticSearchSink.createSdcSink[SdcRawHistorical](
+			//						cfgElasticSearchEndpoint,
+			//						cfgElasticSearchUnenrichableIndexName,
+			//						cfgElasticSearchBulkInterval,
+			//						cfgElasticSearchMaxRetries,
+			//						SdcElasticSearchSink.DAILY_INDEX))
+			//					.setParallelism(cfgElasticSearchUnenrichableParallelism)
+			//					.uid(OperatorId.SINK_ELASTIC_UNENRICHABLE)
+			//					.name("ES - Unenrichable")
+
+			if (cfgParquetEnabled) {
+				streamEnrichedInstant.addSink(
+					SdcParquetFileSink.buildSinkGeneric[SdcEnrichedInstant](SdcEnrichedInstant.getSchema(),
+						cfgParquetInstantPath, cfgParquetPrefix, cfgParquetSuffixFormat))
+						.setParallelism(cfgParquetParallelism)
+						.uid(OperatorId.SINK_PARQUET_INSTANT)
+						.name("S3 - Instant")
+
+				streamEnrichedHistorical.addSink(
+					SdcParquetFileSink.buildSinkGeneric[SdcEnrichedHistorical](SdcEnrichedHistorical.getSchema(),
+						cfgParquetHistoricalPath, cfgParquetPrefix, cfgParquetSuffixFormat))
+						.setParallelism(cfgParquetParallelism)
+						.uid(OperatorId.SINK_PARQUET_HISTORICAL)
+						.name("S3 - Historical")
+
+				streamDslamMetadataInstant.union(streamDslamMetadataHistorical).addSink(
+					SdcParquetFileSink.buildSinkGeneric[DslamMetadata](DslamMetadata.getSchema(),
+						cfgParquetMetadataPath, cfgParquetPrefix, cfgParquetSuffixFormat))
+						.setParallelism(1)
+						.uid(OperatorId.SINK_PARQUET_METADATA)
+						.name("S3 - Metadata")
+			}
+
+			if (cfgElasticSearchStatsEnabled) {
+				streamDslamMetadataInstant.union(streamDslamMetadataHistorical)
+						.addSink(SdcElasticSearchSink.createElasticSearchSink[DslamMetadata](
+							cfgElasticSearchEndpoint,
+							r => s"${cfgElasticSearchStatsDslamMetaIndexName}_${SdcElasticSearchSink.MONTHLY_INDEX_SUFFIX_FORMATTER.format(Instant.ofEpochMilli(r.ts))}",
+							DslamMetadata.toMap,
+							r => s"${if (r.isInstant) "I" else "H"}_${r.name}_${r.ts}",
+							1000,
+							5,
+							cfgElasticSearchBulkInterval,
+							cfgElasticSearchBackoffDelay,
+							3000))
+						.setParallelism(1)
+						.uid(OperatorId.SINK_ELASTIC_METADATA)
+						.name("ES - DSLAM Info")
+
+				streamDslamMissingInstant
+						.addSink(SdcElasticSearchSink.createElasticSearchSink[(Long, String)](
+							cfgElasticSearchEndpoint,
+							r => s"${cfgElasticSearchStatsMissingInstantIndexName}_${SdcElasticSearchSink.MONTHLY_INDEX_SUFFIX_FORMATTER.format(Instant.ofEpochMilli(r._1))}",
+							r => Map("metrics_timestamp" -> (r._1 + cfgRollingAverageSlideInterval * 60L * 1000L), "dslam" -> r._2),
+							r => s"I_${r._2}_${r._1}",
+							1000,
+							5,
+							cfgElasticSearchBulkInterval,
+							cfgElasticSearchBackoffDelay,
+							3000))
+						.setParallelism(1)
+						.uid(OperatorId.SINK_ELASTIC_MISSING_I)
+						.name("ES - Missing DSLAM - Instant")
+
+				streamDslamMissingHistorical
+						.addSink(SdcElasticSearchSink.createElasticSearchSink[(Long, String)](
+							cfgElasticSearchEndpoint,
+							r => s"${cfgElasticSearchStatsMissingHistoricalIndexName}_${SdcElasticSearchSink.MONTHLY_INDEX_SUFFIX_FORMATTER.format(Instant.ofEpochMilli(r._1))}",
+							r => Map("metrics_timestamp" -> (r._1 + cfgRollingAverageSlideInterval * 60L * 1000L), "dslam" -> r._2),
+							r => s"H_${r._2}_${r._1}",
+							1000,
+							5,
+							cfgElasticSearchBulkInterval,
+							cfgElasticSearchBackoffDelay,
+							3000))
+						.setParallelism(1)
+						.uid(OperatorId.SINK_ELASTIC_MISSING_H)
+						.name("ES - Missing DSLAM - Historical")
+
+			}
+		}
+		// execute program
+		streamEnv.execute("Chronos SDC")
+	}
+}

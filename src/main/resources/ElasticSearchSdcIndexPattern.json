@@ -1,6 +1,6 @@
 {
 	"order": 0,
-	"template": "sdc-combined-prod-*",
+	"template": "sdc-combined-*",
 	"refresh_interval": "5s",
 	"mappings": {
 		"_doc": {
@@ -12,6 +12,14 @@
 				"enabled": true
 			},
 			"properties": {
+				"correctedAttainableNetDataRateDownstream": {
+					"type": "integer",
+					"index": false
+				},
+				"correctedAttainableNetDataRateUpstream": {
+					"type": "integer",
+					"index": false
+				},
 				"xdslFarEndChannelActualNetDataRateDownstream": {
 					"type": "integer",
 					"index": false
@@ -57,7 +65,7 @@
 					"ignore_above": 8,
 					"index": true
 				},
-				"extendUserPortFdbUserAddress": {
+				"macaddress": {
 					"type": "keyword",
 					"ignore_above": 32,
 					"index": true
@@ -116,7 +124,7 @@
 		}
 	},
 	"aliases": {
-		"sdc-combined-prod": {}
+		"sdc-combined": {}
 	}
 }
-PUT /_template/sdc-combined-prod-template
+PUT /_template/sdc-combined-template
