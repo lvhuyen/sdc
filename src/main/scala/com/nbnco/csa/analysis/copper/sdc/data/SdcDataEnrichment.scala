@@ -6,13 +6,15 @@ package com.nbnco.csa.analysis.copper.sdc.data
 case class SdcDataEnrichment(tsEnrich: Long, avcId: String, cpi: String) {
 	def toMap: Map[String, Any] = {
 		Map (
-			"enrich_timestamp" -> tsEnrich,
+			"enrich_timestamp" -> System.currentTimeMillis(),
 			"avc_id" -> avcId,
-			"cpid" -> cpi
+			"cpi" -> cpi
 		)
 	}
 }
 
 object SdcDataEnrichment {
-	def apply(): SdcDataEnrichment = SdcDataEnrichment(0L, null, null)
+	val BLANK = SdcDataEnrichment(0L, null, null)
+
+	def apply(): SdcDataEnrichment = BLANK
 }

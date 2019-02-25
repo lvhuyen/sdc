@@ -20,7 +20,7 @@ case class SdcDataInstant(var if_admin_status: String,
             "xdslChannelActualNetDataRateUpstream" -> actual_us,
             "xdslFarEndChannelAttainableNetDataRateDownstream" -> attndr_ds,
             "xdslChannelAttainableNetDataRateUpstream" -> attndr_us,
-            "xdslFarEndLineLoopAttenuationDownstream" -> attenuation_ds,
+            "xdslFarEndLineLoopAttenuationDownstream" -> (if (attenuation_ds == null) null else attenuation_ds / 10.0f),
             "macaddress" -> user_mac_address
         )
     }

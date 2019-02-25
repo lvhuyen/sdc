@@ -131,9 +131,9 @@ object CalculatePercentiles {
 			( 32194,   8000)  // 70 dB
 	)
 
-	def getAttenIndex(atten: Float): Short =
-		if (atten > 70.0f) 70
-		else if (atten < 0.0f) 0
+	def getAttenIndex(atten: Float) =
+		if (atten > 70.0f) 70: Short
+		else if (atten < 0.0f) 0: Short
 		else atten.round.toShort
 
 
@@ -252,8 +252,8 @@ object CalculatePercentiles {
 			// find the upper bound and then interpolate between the two
 			// p will be our pointer to the percentile contour. Actual rate will lie between [p-1] and [p]
 			val steps = ((100.0 - FIRST_PERCENTILE) - percentile) / PERCENTILE_STEP
-			val p = steps.toInt
-			val fract = steps - p
+			val p = steps.toInt + 1
+			val fract = steps - p + 1
 
 			// reverse the non-linear percentile scaling as best we can. It won't be perfect
 			val linear = pow(if (fract > 1.0) 1.0 else if (fract <= 0.0) 0.000001 else fract,
@@ -268,7 +268,7 @@ object CalculatePercentiles {
 	def calculate_corrected_attndr(service_type: TechType.TechType, best_atten_375: Short, max_add_NM: Short,
 								   tier: String, att_ndr: Int, dpbo_profile: Byte,
 								   current_pctls: Array[JavaFloat], expected_pctls: Array[JavaFloat], doing_us: Boolean): Int = {
-		if (current_pctls.isEmpty || expected_pctls.isEmpty
+		if (current_pctls == null || current_pctls.isEmpty || expected_pctls == null || expected_pctls.isEmpty
 			|| (service_type == TechType.FTTN && Seq("100", "40").contains(tier) && max_add_NM >= 30)
 			|| (service_type == TechType.FTTB && Seq("100", "40", "50", "20").contains(tier)))
 			return -1

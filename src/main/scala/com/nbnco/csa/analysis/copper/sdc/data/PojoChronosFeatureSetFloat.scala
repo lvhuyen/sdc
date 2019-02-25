@@ -4,11 +4,10 @@ package com.nbnco.csa.analysis.copper.sdc.data
   * Created by Huyen on 21/02/19.
   */
 class PojoChronosFeatureSetFloat(var id: String,
-								 var idType: String,
-								 var value: Float,
-								 var attrname: String) {
+								 var id_type: String,
+								 var value: Float) {
 
-	def this() = this("", "", 0.0f, "")
+	def this() = this("", "", 0.0f)
 
-	override def toString: String = s"FlsRaw($id,$idType,$value,$attrname)"
+	override def toString: String = s"FlsRaw($id,$id_type,$value)"
 }

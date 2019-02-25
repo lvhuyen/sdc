@@ -46,10 +46,12 @@ class EnrichSdcRecord (enrichedI: OutputTag[SdcEnrichedInstant], enrichedH: Outp
 					case _ => e.data
 				}
 				// Add new enrichment data to the Cache
-				cachedEnrichmentStateDesc.update((
-						if (cachedEnrichmentData == null) new_data
-						else cachedEnrichmentData ++ new_data
-						).withDefaultValue(""))
+				cachedEnrichmentStateDesc.update(
+					if (cachedEnrichmentData == null)
+						new_data
+					else
+						cachedEnrichmentData ++ new_data
+				)
 
 			case h: SdcRawHistorical =>
 				val result:SdcEnrichedHistorical = if (cachedEnrichmentData != null)
@@ -65,8 +67,8 @@ class EnrichSdcRecord (enrichedI: OutputTag[SdcEnrichedInstant], enrichedH: Outp
 						val techType = cachedEnrichmentData.getOrElse(EnrichmentAttributeName.TECH_TYPE, TechType.NotSupported).asInstanceOf[TechType.TechType]
 						val atten365 = cachedEnrichmentData.getOrElse(EnrichmentAttributeName.ATTEN365, (-1).toShort).asInstanceOf[Short]
 						val dpboProfile = cachedEnrichmentData.getOrElse(EnrichmentAttributeName.DPBO_PROFILE, (-1).toByte).asInstanceOf[Byte]
-						val tier_ds = cachedEnrichmentData(EnrichmentAttributeName.TC4_DS).asInstanceOf[String]
-						val tier_us = cachedEnrichmentData(EnrichmentAttributeName.TC4_US).asInstanceOf[String]
+						val tier_ds = cachedEnrichmentData.getOrElse(EnrichmentAttributeName.TC4_DS, "").asInstanceOf[String]
+						val tier_us = cachedEnrichmentData.getOrElse(EnrichmentAttributeName.TC4_US, "").asInstanceOf[String]
 						val (c_ds, c_us, e_ds, e_us) = CalculatePercentiles.buildKeysForGettingPctlsTable(techType, atten365, tier_ds, tier_us)
 
 						val corrected_ds = CalculatePercentiles.calculate_corrected_attndr(techType, atten365,

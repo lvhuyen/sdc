@@ -113,17 +113,19 @@ object SdcElasticSearchSink {
 					if (ExceptionUtils.findThrowableWithMessage(failure, "version conflict") != Optional.empty()
 						|| ExceptionUtils.findThrowable(failure, classOf[EsRejectedExecutionException]) != Optional.empty())
 						indexer.add(s)
-					else if (((restStatusCode == -1) && (failure != null) && failure.getMessage.contains("Connection closed")) && shouldRetry()) {
-						LOG.info(s"Failed updating document in ElasticSearch with error message '${failure.getMessage}'. Retrying: ${actionRequest.toString}")
+					else if ((restStatusCode == -1) && shouldRetry()) {
+						LOG.info(s"Failed updating document in ElasticSearch with error message '${
+							if ((failure != null) && (failure.getMessage != null)) failure.getMessage else "null"}'. Retrying: ${actionRequest.toString}")
 						indexer.add(s.retryOnConflict(0))
 					} else
 						escalateError(actionRequest, failure, restStatusCode)
 
 				case s: IndexRequest =>
 					if ((ExceptionUtils.findThrowable(failure, classOf[EsRejectedExecutionException]) != Optional.empty()
-							|| ((restStatusCode == -1) && (failure != null) && failure.getMessage.contains("Connection closed")))
+							|| (restStatusCode == -1))
 						&& shouldRetry()) {
-						LOG.info(s"Failed inserting document to ElasticSearch with error message '${failure.getMessage}'. Retrying: ${actionRequest.toString}")
+						LOG.info(s"Failed inserting document to ElasticSearch with error message '${
+							if ((failure != null) && (failure.getMessage != null)) failure.getMessage else "null"}'. Retrying: ${actionRequest.toString}")
 						indexer.add(s)
 					} else
 						escalateError(actionRequest, failure, restStatusCode)

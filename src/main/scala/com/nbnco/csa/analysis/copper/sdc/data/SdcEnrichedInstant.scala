@@ -52,7 +52,7 @@ case class SdcEnrichedInstant(ts: Long,
 			case 9 => data.actual_us.asInstanceOf[AnyRef]
 			case 10 => data.attndr_ds.asInstanceOf[AnyRef]
 			case 11 => data.attndr_us.asInstanceOf[AnyRef]
-			case 12 => data.attenuation_ds
+			case 12 => if (data.attenuation_ds == null) null else (data.attenuation_ds / 10.0f).asInstanceOf[AnyRef]
 			case 13 => data.user_mac_address
 			case 14 => correctedAttndr._1.asInstanceOf[AnyRef]
 			case 15 => correctedAttndr._2.asInstanceOf[AnyRef]
@@ -82,7 +82,7 @@ object SdcEnrichedInstant {
 	}
 	def apply(raw: SdcRawInstant): SdcEnrichedInstant = {
 		SdcEnrichedInstant(raw.ts, raw.dslam, raw.port,
-			SdcDataEnrichment(Long.MinValue, null, null),
+			SdcDataEnrichment(),
 			raw.data, (-1, -1))
 	}
 	def apply(): SdcEnrichedInstant = {
@@ -105,7 +105,7 @@ object SdcEnrichedInstant {
 				.name("actual_us").`type`("int").noDefault()
 				.name("attndr_ds").`type`("int").noDefault()
 				.name("attndr_us").`type`("int").noDefault()
-				.name("attenuation_ds").`type`().nullable().intType().noDefault()
+				.name("attenuation_ds").`type`().nullable().floatType().noDefault()
 				.name("user_mac_address").`type`().nullable().stringType().noDefault()
 				.name("correctedAttndr_ds").`type`().nullable().intType().noDefault()
 				.name("correctedAttndr_us").`type`().nullable().intType().noDefault()

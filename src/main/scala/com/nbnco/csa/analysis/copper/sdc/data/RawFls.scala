@@ -18,10 +18,6 @@ object RawFls {
 	val UNKNOWN = RawFls(Long.MinValue, "", Map(EnrichmentAttributeName.TECH_TYPE -> TechType.NotSupported))
 
 	private val regexTc4 = """.*D(\d+-)?(\d+)_U(\d+-)?(\d+)_Mbps_TC4.*""".r
-//	private val techTypeShortener = Map(
-//		"Fibre To The Node" -> "FTTN",
-//		"Fibre To The Building" -> "FTTB"
-//	)
 
 	val unsupportedTechType = TechType.NotSupported
 

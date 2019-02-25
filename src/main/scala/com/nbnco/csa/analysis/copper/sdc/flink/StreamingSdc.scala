@@ -87,14 +87,14 @@ object StreamingSdc {
 	def readEnrichmentData(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): DataStream[EnrichmentRecord] = {
 		val cfgEnrichmentScanInterval = appConfig.getLong("sources.enrichment.scan-interval", 60000L)
 		val cfgEnrichmentScanConsistency = appConfig.getLong("sources.fls-parquet.scan-consistency-offset", 0L)
-		val cfgEnrichmentIgnoreOlderThan = appConfig.getLong("sources.enrichment.ignore-files-older-than-minutes", 10000) * 60 * 1000
+		val cfgEnrichmentIgnoreOlderThan = appConfig.getLong("sources.enrichment.ignore-files-older-than-days", 1)
 
 		val cfgFlsParquetLocation = appConfig.get("sources.fls-parquet.path", "s3://thor-pr-data-warehouse-common/common.ipact.fls.fls7_avc_inv/version=0/")
 		val cfgAmsParquetLocation = appConfig.get("sources.ams-parquet.path", "s3://thor-pr-data-warehouse-fttx/fttx.ams.inventory.xdsl_port/version=0/")
 
 		// Read FLS Data
 		val fifFlsParquet = new ChronosParquetFileInputFormat[PojoFls](new Path(cfgFlsParquetLocation), createTypeInformation[PojoFls])
-		fifFlsParquet.setFilesFilter(new EnrichmentFilePathFilter(cfgEnrichmentIgnoreOlderThan))
+		fifFlsParquet.setFilesFilter(new EnrichmentFilePathFilter(cfgEnrichmentIgnoreOlderThan, "yyyyMMdd", """\d{8}"""))
 		fifFlsParquet.setNestedFileEnumeration(true)
 		val streamFlsParquet: DataStream[RawFls] = streamEnv
 				.readFile(fifFlsParquet, cfgFlsParquetLocation,
@@ -106,7 +106,7 @@ object StreamingSdc {
 
 		// Read AMS Data
 		val fifAmsParquet = new ChronosParquetFileInputFormat[PojoAms](new Path(cfgAmsParquetLocation), createTypeInformation[PojoAms])
-		fifAmsParquet.setFilesFilter(new EnrichmentFilePathFilter(cfgEnrichmentIgnoreOlderThan))
+		fifAmsParquet.setFilesFilter(new EnrichmentFilePathFilter(cfgEnrichmentIgnoreOlderThan, "yyyyMMdd", """\d{8}"""))
 		fifAmsParquet.setNestedFileEnumeration(true)
 		val streamAmsParquet: DataStream[RawAms] = streamEnv
 				.readFile(fifAmsParquet, cfgAmsParquetLocation,
@@ -127,12 +127,13 @@ object StreamingSdc {
 		val cfgNacParquetLocation = appConfig.get("sources.nac-parquet.path", "s3://assn-csa-prod-telemetry-data-lake/PROD/RAW/NAC/NAC_ports/version=0/")
 
 		val fifNacParquet = new ChronosParquetFileInputFormat[PojoNac](new Path(cfgNacParquetLocation), createTypeInformation[PojoNac])
-		fifNacParquet.setFilesFilter(new EnrichmentFilePathFilter(cfgEnrichmentIgnoreOlderThan))
+		fifNacParquet.setFilesFilter(new EnrichmentFilePathFilter(cfgEnrichmentIgnoreOlderThan, "yyyy-MM-dd", """\d{4}-\d{2}-\d{2}"""))
 		fifNacParquet.setNestedFileEnumeration(true)
 		val streamNacParquet: DataStream[EnrichmentRecord] = streamEnv
 				.readFile(fifNacParquet, cfgNacParquetLocation,
 					FileProcessingMode.PROCESS_CONTINUOUSLY, cfgEnrichmentScanInterval, cfgEnrichmentScanConsistency)
 				.uid(OperatorId.SOURCE_NAC_RAW)
+        		.filter(_.rtx_attainable_net_data_rate_ds.equals("0.0"))
 				.map(EnrichmentRecord(_))
 				.name("Nac parquet")
 
@@ -141,13 +142,12 @@ object StreamingSdc {
 		val fifChronosFeatureSet =
 			new ChronosParquetFileInputFormat[PojoChronosFeatureSetFloat](
 				new Path(cfgChronosFeatureSetLocation), createTypeInformation[PojoChronosFeatureSetFloat])
-		fifChronosFeatureSet.setFilesFilter(new EnrichmentFilePathFilter(cfgEnrichmentIgnoreOlderThan))
+		fifChronosFeatureSet.setFilesFilter(new EnrichmentFilePathFilter(cfgEnrichmentIgnoreOlderThan, "yyyy-MM-dd", """\d{4}-\d{2}-\d{2}"""))
 		fifChronosFeatureSet.setNestedFileEnumeration(true)
 		val streamAtten375Parquet: DataStream[EnrichmentRecord] = streamEnv
 				.readFile(fifChronosFeatureSet, cfgChronosFeatureSetLocation,
 					FileProcessingMode.PROCESS_CONTINUOUSLY, cfgEnrichmentScanInterval, cfgEnrichmentScanConsistency)
 				.uid(OperatorId.SOURCE_ATTEN375_RAW)
-				.filter(_.attrname.equalsIgnoreCase("attenuation375"))
 				.map(EnrichmentRecord(_))
 				.name("Atten375 parquet")
 
@@ -156,11 +156,11 @@ object StreamingSdc {
 
 	def readPercentilesTable(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment) = {
 		val cfgEnrichmentScanInterval = appConfig.getLong("sources.enrichment.scan-interval", 60000L)
-		val cfgEnrichmentIgnoreOlderThan = appConfig.getLong("sources.enrichment.ignore-files-older-than-minutes", 10000) * 60 * 1000
+		val cfgEnrichmentIgnoreOlderThan = appConfig.getLong("sources.enrichment.ignore-files-older-than-days", 1)
 		val cfgPctlsJsonLocation = appConfig.get("sources.percentiles-json.path", "s3://assn-csa-prod-telemetry-data-lake/PROD/REFERENCE/AttNDRPercentilesLatest/")
 
 		val fifPercentiles = new TextInputFormat(new Path(cfgPctlsJsonLocation))
-		fifPercentiles.setFilesFilter(new EnrichmentFilePathFilter(cfgEnrichmentIgnoreOlderThan))
+		fifPercentiles.setFilesFilter(new EnrichmentFilePathFilter(cfgEnrichmentIgnoreOlderThan, "yyyy-MM-dd", """\d{4}-\d{2}-\d{2}"""))
 		fifPercentiles.setNestedFileEnumeration(true)
 		val streamPctls = streamEnv
 				.readFile(fifPercentiles, cfgPctlsJsonLocation,
@@ -284,17 +284,11 @@ object StreamingSdc {
 		val cfgElasticSearchCombinedSdcIndexName = appConfig.get("sink.elasticsearch.sdc.index-name", "copper-sdc-combined-default")
 		val cfgElasticSearchCombinedSdcParallelism = appConfig.getInt("sink.elasticsearch.sdc.parallelism", 4)
 
-		val cfgElasticSearchAverageEnabled = appConfig.getBoolean("sink.elasticsearch.average.enabled", false)
-		val cfgElasticSearchAverageIndexName = appConfig.get("sink.elasticsearch.average.index-name", "copper-sdc-combined-default")
 		val cfgElasticSearchAverageParallelism = appConfig.getInt("sink.elasticsearch.average.parallelism", 4)
 
 		val cfgElasticSearchEnrichmentEnabled = appConfig.getBoolean("sink.elasticsearch.enrichment.enabled", false)
 		val cfgElasticSearchEnrichmentIndexName = appConfig.get("sink.elasticsearch.enrichment.index-name", "copper-enrichment-default")
 		val cfgElasticSearchEnrichmentParallelism = appConfig.getInt("sink.elasticsearch.enrichment.parallelism", 1)
-
-		val cfgElasticSearchUnenrichableEnabled = appConfig.getBoolean("sink.elasticsearch.unenrichable.enabled", false)
-		val cfgElasticSearchUnenrichableIndexName = appConfig.get("sink.elasticsearch.unenrichable.index-name", "copper-sdc-unenrichable-default")
-		val cfgElasticSearchUnenrichableParallelism = appConfig.getInt("sink.elasticsearch.unenrichable.parallelism", 2)
 
 		val cfgElasticSearchStatsEnabled = appConfig.getBoolean("sink.elasticsearch.stats.enabled", false)
 		val cfgElasticSearchStatsDslamMetaIndexName = appConfig.get("sink.elasticsearch.stats.dslam-meta.index-name", "copper-sdc-dslam-metadata")
@@ -393,7 +387,7 @@ object StreamingSdc {
 			//			streamEnrichment.print()
 //			streamEnrichedInstant.print()
 //			streamEnrichmentAgg.print()
-			streamEnriched.print()
+//			streamEnriched.print()
 //			streamPctls.print()
 			//			streamEnrichment.map(_.toString).print()
 			//			streamEnriched.print()
