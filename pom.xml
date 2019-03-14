@@ -41,7 +41,7 @@ under the License.
 				<enabled>false</enabled>
 			</snapshots>
 		</repository>
-		<repository>
+<!--		<repository>
 			<id>apache.release-candidate</id>
 			<name>Apache Development Release Candidates</name>
 			<url>https://repository.apache.org/content/repositories/orgapacheflink-1206/</url>
@@ -51,7 +51,7 @@ under the License.
 			<snapshots>
 				<enabled>false</enabled>
 			</snapshots>
-		</repository>
+		</repository> -->
 	</repositories>
 
 	<properties>

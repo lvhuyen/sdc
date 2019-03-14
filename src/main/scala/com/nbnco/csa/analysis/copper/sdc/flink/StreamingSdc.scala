@@ -87,7 +87,9 @@ object StreamingSdc {
 	def readEnrichmentData(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): DataStream[EnrichmentRecord] = {
 		val cfgEnrichmentScanInterval = appConfig.getLong("sources.enrichment.scan-interval", 60000L)
 		val cfgEnrichmentScanConsistency = appConfig.getLong("sources.fls-parquet.scan-consistency-offset", 0L)
-		val cfgEnrichmentIgnoreOlderThan = appConfig.getLong("sources.enrichment.ignore-files-older-than-days", 1)
+		val cfgEnrichmentIgnoreOlderThan = appConfig.getInt("sources.enrichment.ignore-files-older-than-days", 1)
+		val cfgEnrichmentReaderParallelism =
+			Math.min(streamEnv.getParallelism, appConfig.getInt("sources.enrichment.reader-parallelism", 8))
 
 		val cfgFlsParquetLocation = appConfig.get("sources.fls-parquet.path", "s3://thor-pr-data-warehouse-common/common.ipact.fls.fls7_avc_inv/version=0/")
 		val cfgAmsParquetLocation = appConfig.get("sources.ams-parquet.path", "s3://thor-pr-data-warehouse-fttx/fttx.ams.inventory.xdsl_port/version=0/")
@@ -99,6 +101,7 @@ object StreamingSdc {
 		val streamFlsParquet: DataStream[RawFls] = streamEnv
 				.readFile(fifFlsParquet, cfgFlsParquetLocation,
 					FileProcessingMode.PROCESS_CONTINUOUSLY, cfgEnrichmentScanInterval, cfgEnrichmentScanConsistency)
+        		.setParallelism(cfgEnrichmentReaderParallelism)
 				.uid(OperatorId.SOURCE_FLS_RAW)
 				.map(RawFls(_))
 				.filter(!_.equals(RawFls.UNKNOWN))
@@ -111,6 +114,7 @@ object StreamingSdc {
 		val streamAmsParquet: DataStream[RawAms] = streamEnv
 				.readFile(fifAmsParquet, cfgAmsParquetLocation,
 					FileProcessingMode.PROCESS_CONTINUOUSLY, cfgEnrichmentScanInterval, cfgEnrichmentScanConsistency)
+				.setParallelism(cfgEnrichmentReaderParallelism)
 				.uid(OperatorId.SOURCE_AMS_RAW)
 				.map(RawAms(_))
 				.filter(!_.dslam.isEmpty)
@@ -132,6 +136,7 @@ object StreamingSdc {
 		val streamNacParquet: DataStream[EnrichmentRecord] = streamEnv
 				.readFile(fifNacParquet, cfgNacParquetLocation,
 					FileProcessingMode.PROCESS_CONTINUOUSLY, cfgEnrichmentScanInterval, cfgEnrichmentScanConsistency)
+				.setParallelism(cfgEnrichmentReaderParallelism)
 				.uid(OperatorId.SOURCE_NAC_RAW)
         		.filter(_.rtx_attainable_net_data_rate_ds.equals("0.0"))
 				.map(EnrichmentRecord(_))
@@ -147,6 +152,7 @@ object StreamingSdc {
 		val streamAtten375Parquet: DataStream[EnrichmentRecord] = streamEnv
 				.readFile(fifChronosFeatureSet, cfgChronosFeatureSetLocation,
 					FileProcessingMode.PROCESS_CONTINUOUSLY, cfgEnrichmentScanInterval, cfgEnrichmentScanConsistency)
+				.setParallelism(cfgEnrichmentReaderParallelism)
 				.uid(OperatorId.SOURCE_ATTEN375_RAW)
 				.map(EnrichmentRecord(_))
 				.name("Atten375 parquet")
@@ -165,6 +171,7 @@ object StreamingSdc {
 		val streamPctls = streamEnv
 				.readFile(fifPercentiles, cfgPctlsJsonLocation,
 					FileProcessingMode.PROCESS_CONTINUOUSLY, cfgEnrichmentScanInterval)
+				.setParallelism(1)
 				.uid(OperatorId.SOURCE_PERCENTILES_RAW)
 				.flatMap(new ParsePercentilesRecord())
 		streamPctls

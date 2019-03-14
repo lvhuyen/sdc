@@ -1,0 +1,26 @@
+[
+  {
+    "classification": "hdfs-site",
+    "properties": {
+      "dfs.replication": "2"
+    }
+  },
+  {
+    "classification": "core-site",
+    "properties": {
+      "fs.s3a.threads.max": "100",
+      "fs.s3a.connection.maximum": "120"
+    }
+  },
+  {
+    "classification": "yarn-site",
+    "properties": {
+      "yarn.log-aggregation.retain-seconds": "864000",
+      "yarn.nodemanager.log-aggregation.roll-monitoring-interval-seconds": "3600",
+      "yarn.log-aggregation-enable": "true",
+      "yarn.nodemanager.remote-app-log-dir": "s3://assn-huyen/SDC/logs",
+      "yarn.resourcemanager.am.max-attempts": "5",
+      "yarn.am.liveness-monitor.expiry-interval-ms": "60000"
+    }
+  }
+]

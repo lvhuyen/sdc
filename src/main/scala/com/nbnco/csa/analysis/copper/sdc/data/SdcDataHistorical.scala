@@ -12,7 +12,7 @@ package com.nbnco.csa.analysis.copper.sdc.data
   * @param reInit       xdslLinePreviousIntervalReInitCounter
   * @param reTransUs    xdslFarEndChannelPreviousIntervalRetransmDtuCounterUS
   * @param reTransDs    xdslChannelPreviousIntervalRetransmDtuCounterDS
-	*                     Drop-out = reInit = LPR
+	*                     Drop-out = reInit - LPR
   */
 case class SdcDataHistorical(var ses: Long,
                              var uas: Long,
