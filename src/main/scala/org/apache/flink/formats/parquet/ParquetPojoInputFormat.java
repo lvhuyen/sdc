@@ -19,27 +19,29 @@
 package org.apache.flink.formats.parquet;
 
 import org.apache.flink.api.common.ExecutionConfig;
-import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
-import org.apache.flink.api.common.typeinfo.SqlTimeTypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.api.java.typeutils.PojoTypeInfo;
+import org.apache.flink.api.java.typeutils.RowTypeInfo;
 import org.apache.flink.core.fs.FileInputSplit;
 import org.apache.flink.core.fs.Path;
+import org.apache.flink.formats.parquet.utils.ParquetSchemaConverter;
 import org.apache.flink.types.Row;
 import org.apache.flink.util.Preconditions;
-import org.apache.parquet.io.api.Binary;
+
+import org.apache.parquet.schema.MessageType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
- * A subclass of {@link ParquetInputFormat} to read from Parquets files and convert to POJO type.
- * It is mainly used to read simple data type without nested fields.
+ * An implementation of {@link ParquetInputFormat} to read POJO records from Parquet files.
  */
 public class ParquetPojoInputFormat<E> extends ParquetInputFormat<E> {
 
@@ -49,32 +51,33 @@ public class ParquetPojoInputFormat<E> extends ParquetInputFormat<E> {
 	private transient Field[] pojoFields;
 
 	public ParquetPojoInputFormat(Path filePath, PojoTypeInfo<E> pojoTypeInfo) {
-		this(filePath, pojoTypeInfo, pojoTypeInfo.getFieldNames());
-	}
-
-	public ParquetPojoInputFormat(Path filePath, PojoTypeInfo<E> pojoTypeInfo, String[] fieldNames) {
-		super(filePath, extractTypeInfos(pojoTypeInfo, fieldNames), fieldNames);
+		super(filePath, ParquetSchemaConverter.toParquetType(
+				new RowTypeInfo(extractTypeInfos(pojoTypeInfo, pojoTypeInfo.getFieldNames()),
+						pojoTypeInfo.getFieldNames()), false));
 		this.pojoTypeClass = pojoTypeInfo.getTypeClass();
 		this.typeSerializer = pojoTypeInfo.createSerializer(new ExecutionConfig());
+		final Map<String, Field> fieldMap = new HashMap<>();
+		findAllFields(pojoTypeClass, fieldMap);
+		selectFields(fieldMap.keySet().toArray(new String[0]));
 	}
 
 	@Override
 	public void open(FileInputSplit split) throws IOException {
 		super.open(split);
-		pojoFields = new Field[fieldNames.length];
-
+		pojoFields = new Field[getFieldNames().length];
+		LOG.warn("Fields number is {}", getFieldNames().length);
 		final Map<String, Field> fieldMap = new HashMap<>();
 		findAllFields(pojoTypeClass, fieldMap);
 
-		for (int i = 0; i < fieldNames.length; ++i) {
-			String fieldName = fieldNames[i];
+		for (int i = 0; i < getFieldNames().length; ++i) {
+			String fieldName = getFieldNames()[i];
 			pojoFields[i] = fieldMap.get(fieldName);
 
 			if (pojoFields[i] != null) {
 				pojoFields[i].setAccessible(true);
 			} else {
 				throw new RuntimeException(
-					String.format("There is no field called %s in %s", fieldName, pojoTypeClass.getName()));
+						String.format("There is no field called %s in %s", fieldName, pojoTypeClass.getName()));
 			}
 		}
 	}
@@ -94,27 +97,15 @@ public class ParquetPojoInputFormat<E> extends ParquetInputFormat<E> {
 	protected E convert(Row row) {
 		E result = typeSerializer.createInstance();
 		for (int i = 0; i < row.getArity(); ++i) {
-			if (row.getField(i) != null) {
-				try {
-					if (fieldTypes[i].equals(BasicTypeInfo.STRING_TYPE_INFO)) {
-						pojoFields[i].set(result, ((Binary) row.getField(i)).toStringUsingUTF8());
-					} else if (fieldTypes[i].equals(BasicTypeInfo.DATE_TYPE_INFO)) {
-						pojoFields[i].set(result, new java.util.Date((long) row.getField(i)));
-					} else if (fieldTypes[i].equals(BasicTypeInfo.INSTANT_TYPE_INFO)) {
-						if (row.getField(i) instanceof Binary) {
-							pojoFields[i].set(result, bigIntToTimestamp(((Binary) row.getField(i))));
-						} else {
-							pojoFields[i].set(result, microsecsToTimestamp((long) row.getField(i)));
-						}
-					} else if (fieldTypes[i] instanceof SqlTimeTypeInfo) {
-						pojoFields[i].set(result, new java.sql.Date((int) row.getField(i)));
-					} else {
-						pojoFields[i].set(result, row.getField(i));
-					}
-				} catch (IllegalAccessException e) {
-					throw new RuntimeException(
-						String.format("Parsed value could not be set in POJO field %s", fieldNames[i]));
+			try {
+				if (pojoFields[i].getType().isAssignableFrom(List.class)) {
+					pojoFields[i].set(result, Collections.singletonList(row.getField(i)));
+				} else {
+					pojoFields[i].set(result, row.getField(i));
 				}
+			} catch (IllegalAccessException e) {
+				throw new RuntimeException(
+						String.format("Parsed value could not be set in POJO field %s", getFieldNames()[i]));
 			}
 		}
 
@@ -134,8 +125,8 @@ public class ParquetPojoInputFormat<E> extends ParquetInputFormat<E> {
 			Preconditions.checkNotNull(fieldName, "The field can't be null");
 			int fieldPos = pojoTypeInfo.getFieldIndex(fieldName);
 			Preconditions.checkArgument(fieldPos >= 0,
-				String.format("Field %s is not a member of POJO type %s",
-					fieldName, pojoTypeInfo.getTypeClass().getName()));
+					String.format("Field %s is not a member of POJO type %s",
+							fieldName, pojoTypeInfo.getTypeClass().getName()));
 			fieldTypes[i] = pojoTypeInfo.getTypeAt(fieldPos);
 		}
 

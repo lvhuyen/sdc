@@ -117,7 +117,8 @@ object StreamingSdc {
 				.setParallelism(cfgEnrichmentReaderParallelism)
 				.uid(OperatorId.SOURCE_AMS_RAW)
 				.map(RawAms(_))
-				.filter(!_.dslam.isEmpty)
+				.filter(r => r.dslam != null && !r.dslam.isEmpty)
+				.filter(r => r.uni_prid != null && r.uni_prid.startsWith("UNI"))
 				.name("AMS parquet")
 
 		// Join AMS with FLS
@@ -157,7 +158,8 @@ object StreamingSdc {
 				.map(EnrichmentRecord(_))
 				.name("Atten375 parquet")
 
-		return streamAmsFlsParquet.union(streamNacParquet).union(streamAtten375Parquet)
+		return streamAmsFlsParquet
+//				.union(streamNacParquet).union(streamAtten375Parquet)
 	}
 
 	def readPercentilesTable(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment) = {
@@ -393,7 +395,6 @@ object StreamingSdc {
 			//			streamSdcRawInstant.print()
 			//			streamEnrichment.print()
 //			streamEnrichedInstant.print()
-//			streamEnrichmentAgg.print()
 //			streamEnriched.print()
 //			streamPctls.print()
 			//			streamEnrichment.map(_.toString).print()

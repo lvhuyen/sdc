@@ -19,23 +19,30 @@
 package org.apache.flink.formats.parquet.utils;
 
 import org.apache.flink.api.common.typeinfo.BasicArrayTypeInfo;
+import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
+import org.apache.flink.api.common.typeinfo.SqlTimeTypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.common.typeutils.CompositeType;
 import org.apache.flink.api.java.typeutils.MapTypeInfo;
 import org.apache.flink.api.java.typeutils.ObjectArrayTypeInfo;
 import org.apache.flink.api.java.typeutils.RowTypeInfo;
-import org.apache.flink.shaded.guava18.com.google.common.collect.Iterables;
 import org.apache.flink.types.Row;
+
 import org.apache.parquet.io.api.Binary;
 import org.apache.parquet.io.api.Converter;
 import org.apache.parquet.io.api.GroupConverter;
 import org.apache.parquet.io.api.PrimitiveConverter;
 import org.apache.parquet.schema.GroupType;
 import org.apache.parquet.schema.MessageType;
+import org.apache.parquet.schema.OriginalType;
+import org.apache.parquet.schema.PrimitiveType;
 import org.apache.parquet.schema.Type;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
+import java.lang.reflect.Array;
+import java.math.BigDecimal;
+import java.sql.Date;
+import java.sql.Time;
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -45,7 +52,6 @@ import java.util.Map;
  * Extends from {@link GroupConverter} to convert an nested Parquet Record into Row.
  */
 public class RowConverter extends GroupConverter implements ParentDataHolder {
-	private static final Logger LOGGER = LoggerFactory.getLogger(RowConverter.class);
 	private final Converter[] converters;
 	private final ParentDataHolder parentDataHolder;
 	private final TypeInformation<?> typeInfo;
@@ -58,9 +64,10 @@ public class RowConverter extends GroupConverter implements ParentDataHolder {
 
 	public RowConverter(GroupType schema, TypeInformation<?> typeInfo, ParentDataHolder parent, int pos) {
 		this.typeInfo = typeInfo;
-		this.converters = new Converter[schema.getFieldCount()];
 		this.parentDataHolder = parent;
 		this.posInParentRow = pos;
+		this.converters = new Converter[schema.getFieldCount()];
+
 		int i = 0;
 		if (typeInfo.getArity() >= 1 && (typeInfo instanceof CompositeType)) {
 			for (Type field : schema.getFields()) {
@@ -71,52 +78,68 @@ public class RowConverter extends GroupConverter implements ParentDataHolder {
 	}
 
 	private static Converter createConverter(
-		Type field,
-		int fieldPos,
-		TypeInformation<?> typeInformation,
-		ParentDataHolder parentDataHolder) {
+			Type field,
+			int fieldPos,
+			TypeInformation<?> typeInformation,
+			ParentDataHolder parentDataHolder) {
 		if (field.isPrimitive()) {
-			return new RowConverter.RowPrimitiveConverter(parentDataHolder, fieldPos);
+			return new RowConverter.RowPrimitiveConverter(field, parentDataHolder, fieldPos);
 		} else if (typeInformation instanceof MapTypeInfo) {
 			return new RowConverter.MapConverter((GroupType) field, (MapTypeInfo) typeInformation,
-				parentDataHolder, fieldPos);
+					parentDataHolder, fieldPos);
 		} else if (typeInformation instanceof BasicArrayTypeInfo) {
+			Type elementType = field.asGroupType().getFields().get(0);
 			Class typeClass = ((BasicArrayTypeInfo) typeInformation).getComponentInfo().getTypeClass();
 			if (typeClass.equals(Character.class)) {
-				return new RowConverter.BasicArrayConverter<Character>((BasicArrayTypeInfo) typeInformation, Character.class,
-					parentDataHolder, fieldPos);
+				return new RowConverter.ArrayConverter<Character>(elementType,
+						Character.class, BasicTypeInfo.CHAR_TYPE_INFO, parentDataHolder, fieldPos);
 			} else if (typeClass.equals(Boolean.class)) {
-				return new RowConverter.BasicArrayConverter<Boolean>((BasicArrayTypeInfo) typeInformation, Boolean.class,
-					parentDataHolder, fieldPos);
+				return new RowConverter.ArrayConverter<Boolean>(elementType,
+						Boolean.class, BasicTypeInfo.BOOLEAN_TYPE_INFO, parentDataHolder, fieldPos);
 			} else if (typeClass.equals(Short.class)) {
-				return new RowConverter.BasicArrayConverter<Short>((BasicArrayTypeInfo) typeInformation, Short.class,
-					parentDataHolder, fieldPos);
+				return new RowConverter.ArrayConverter<Short>(elementType,
+						Short.class, BasicTypeInfo.SHORT_TYPE_INFO, parentDataHolder, fieldPos);
 			} else if (typeClass.equals(Integer.class)) {
-				return new RowConverter.BasicArrayConverter<Integer>((BasicArrayTypeInfo) typeInformation, Integer.class,
-					parentDataHolder, fieldPos);
+				return new RowConverter.ArrayConverter<Integer>(elementType,
+						Integer.class, BasicTypeInfo.INSTANT_TYPE_INFO, parentDataHolder, fieldPos);
 			} else if (typeClass.equals(Long.class)) {
-				return new RowConverter.BasicArrayConverter<Long>((BasicArrayTypeInfo) typeInformation, Long.class,
-					parentDataHolder, fieldPos);
+				return new RowConverter.ArrayConverter<Long>(elementType,
+						Long.class, BasicTypeInfo.LONG_TYPE_INFO, parentDataHolder, fieldPos);
 			} else if (typeClass.equals(Double.class)) {
-				return new RowConverter.BasicArrayConverter<Double>((BasicArrayTypeInfo) typeInformation, Double.class,
-					parentDataHolder, fieldPos);
+				return new RowConverter.ArrayConverter<Double>(elementType,
+						Double.class, BasicTypeInfo.DOUBLE_TYPE_INFO, parentDataHolder, fieldPos);
 			} else if (typeClass.equals(String.class)) {
-				return new RowConverter.BasicArrayConverter<String>((BasicArrayTypeInfo) typeInformation, String.class,
-					parentDataHolder, fieldPos);
+				return new RowConverter.ArrayConverter<String>(elementType,
+						String.class, BasicTypeInfo.STRING_TYPE_INFO, parentDataHolder, fieldPos);
+			} else if (typeClass.equals(Date.class)) {
+				return new RowConverter.ArrayConverter<Date>(elementType,
+						Date.class, SqlTimeTypeInfo.DATE, parentDataHolder, fieldPos);
+			} else if (typeClass.equals(Time.class)) {
+				return new RowConverter.ArrayConverter<Time>(elementType,
+						Time.class, SqlTimeTypeInfo.TIME, parentDataHolder, fieldPos);
+			} else if (typeClass.equals(Timestamp.class)) {
+				return new RowConverter.ArrayConverter<Timestamp>(elementType,
+						Timestamp.class, SqlTimeTypeInfo.TIMESTAMP, parentDataHolder, fieldPos);
+			} else if (typeClass.equals(BigDecimal.class)) {
+				return new RowConverter.ArrayConverter<BigDecimal>(elementType,
+						BigDecimal.class, BasicTypeInfo.BIG_DEC_TYPE_INFO, parentDataHolder, fieldPos);
 			}
 
 			throw new IllegalArgumentException(
-				String.format("Can't create unsupported primitive array type for %s", typeClass.toString()));
+					String.format("Can't create converter unsupported primitive array type for %s", typeClass.toString()));
 
 		} else if (typeInformation instanceof ObjectArrayTypeInfo) {
-			return new RowConverter.ObjectArrayConverter(field, (ObjectArrayTypeInfo) typeInformation,
-				parentDataHolder, fieldPos);
+			GroupType parquetGroupType = field.asGroupType();
+			Type elementType = parquetGroupType.getType(0);
+
+			return new RowConverter.ArrayConverter<Row>(elementType, Row.class,
+					((ObjectArrayTypeInfo) typeInformation).getComponentInfo(), parentDataHolder, fieldPos);
 		} else if (typeInformation instanceof RowTypeInfo) {
 			return new RowConverter((GroupType) field, typeInformation, parentDataHolder, fieldPos);
 		}
 
-		// Other are types, we don't support.
-		return null;
+		throw new IllegalArgumentException(
+				String.format("Can't create converter for field %s with type %s ", field.getName(), typeInformation.toString()));
 	}
 
 	@Override
@@ -146,17 +169,51 @@ public class RowConverter extends GroupConverter implements ParentDataHolder {
 	}
 
 	static class RowPrimitiveConverter extends PrimitiveConverter {
+		private OriginalType originalType;
+		private PrimitiveType.PrimitiveTypeName primitiveTypeName;
 		private ParentDataHolder parentDataHolder;
 		private int pos;
 
-		RowPrimitiveConverter(ParentDataHolder parentDataHolder, int pos) {
+		RowPrimitiveConverter(Type dataType, ParentDataHolder parentDataHolder, int pos) {
 			this.parentDataHolder = parentDataHolder;
 			this.pos = pos;
+			if (dataType.isPrimitive()) {
+				this.originalType = dataType.getOriginalType();
+				this.primitiveTypeName = dataType.asPrimitiveType().getPrimitiveTypeName();
+			} else {
+				// Backward-compatibility  It can be a group type middle layer
+				Type primitiveType = dataType.asGroupType().getType(0);
+				this.originalType = primitiveType.getOriginalType();
+				this.primitiveTypeName = primitiveType.asPrimitiveType().getPrimitiveTypeName();
+			}
 		}
 
 		@Override
 		public void addBinary(Binary value) {
-			parentDataHolder.add(pos, value);
+			// in case it is a timestamp type stored as INT96
+			if (primitiveTypeName.equals(PrimitiveType.PrimitiveTypeName.INT96)) {
+				parentDataHolder.add(pos, new Timestamp(ParquetTimestampUtils.getTimestampMillis(value)));
+				return;
+			}
+
+			if (originalType != null) {
+				switch (originalType) {
+					case DECIMAL:
+						parentDataHolder.add(pos, new BigDecimal(value.toStringUsingUTF8().toCharArray()));
+						break;
+					case UTF8:
+					case ENUM:
+					case JSON:
+					case BSON:
+						parentDataHolder.add(pos, value.toStringUsingUTF8());
+						break;
+					default:
+						throw new UnsupportedOperationException("Unsupported original type : " + originalType.name()
+								+ " for primitive type BINARY");
+				}
+			} else {
+				parentDataHolder.add(pos, value.toStringUsingUTF8());
+			}
 		}
 
 		@Override
@@ -176,70 +233,81 @@ public class RowConverter extends GroupConverter implements ParentDataHolder {
 
 		@Override
 		public void addInt(int value) {
-			parentDataHolder.add(pos, value);
+			if (originalType != null) {
+				switch (originalType) {
+					case TIME_MICROS:
+					case TIME_MILLIS:
+						parentDataHolder.add(pos, new Time(value));
+						break;
+					case TIMESTAMP_MICROS:
+					case TIMESTAMP_MILLIS:
+						parentDataHolder.add(pos, new Timestamp(value));
+						break;
+					case DATE:
+						parentDataHolder.add(pos, new Date(value));
+						break;
+					case UINT_8:
+					case UINT_16:
+					case UINT_32:
+					case INT_8:
+					case INT_16:
+					case INT_32:
+						parentDataHolder.add(pos, value);
+						break;
+					default:
+						throw new UnsupportedOperationException("Unsupported original type : " + originalType.name()
+								+ " for primitive type INT32");
+				}
+			} else {
+				parentDataHolder.add(pos, value);
+			}
 		}
 
 		@Override
 		public void addLong(long value) {
-			parentDataHolder.add(pos, value);
-		}
-	}
-
-	static class ObjectArrayConverter<T extends RowTypeInfo> extends GroupConverter implements ParentDataHolder {
-		private final ParentDataHolder parentDataHolder;
-		private final ObjectArrayTypeInfo objectArrayTypeInfo;
-		private final Converter elementConverter;
-		private final Type type;
-		private final int pos;
-		private List<Row> list;
-
-		ObjectArrayConverter(Type type, ObjectArrayTypeInfo typeInfo, ParentDataHolder parentDataHolder, int pos) {
-			this.type = type;
-			this.parentDataHolder = parentDataHolder;
-			this.objectArrayTypeInfo = typeInfo;
-			this.pos = pos;
-			GroupType parquetGroupType = type.asGroupType();
-			Type elementType = parquetGroupType.getType(0);
-			this.elementConverter = createConverter(elementType, 0, objectArrayTypeInfo.getComponentInfo(), this);
-		}
-
-		@Override
-		public Converter getConverter(int fieldIndex) {
-			return elementConverter;
-		}
-
-		@Override
-		public void start() {
-			list = new ArrayList<>();
-		}
-
-		@Override
-		public void end() {
-			parentDataHolder.add(pos, Iterables.<Row>toArray(list, Row.class));
-		}
-
-		@Override
-		public void add(int fieldIndex, Object object) {
-			list.add((Row) object);
+			if (originalType != null) {
+				switch (originalType) {
+					case TIME_MICROS:
+						parentDataHolder.add(pos, new Time(value));
+						break;
+					case TIMESTAMP_MICROS:
+					case TIMESTAMP_MILLIS:
+						parentDataHolder.add(pos, new Timestamp(value));
+						break;
+					case INT_64:
+					case DECIMAL:
+						// long is more efficient then BigDecimal in terms of memory.
+						parentDataHolder.add(pos, value);
+						break;
+					default:
+						throw new UnsupportedOperationException("Unsupported original type : " + originalType.name()
+								+ " for primitive type INT64");
+				}
+			} else {
+				parentDataHolder.add(pos, value);
+			}
 		}
 	}
 
 	@SuppressWarnings("unchecked")
-	static class BasicArrayConverter<T> extends GroupConverter implements ParentDataHolder {
+	static class ArrayConverter<T> extends GroupConverter implements ParentDataHolder {
 		private final ParentDataHolder parentDataHolder;
-		private final BasicArrayTypeInfo typeInfo;
 		private final Class elementClass;
 		private final int pos;
 		private List<T> list;
 		private Converter elementConverter;
 
-		BasicArrayConverter(BasicArrayTypeInfo typeInfo, Class primitiveClass,
-                            ParentDataHolder parentDataHolder, int pos) {
-			this.elementClass = primitiveClass;
+		ArrayConverter(Type elementType, Class elementClass, TypeInformation elementTypeInfo,
+					   ParentDataHolder parentDataHolder, int pos) {
+			this.elementClass = elementClass;
 			this.parentDataHolder = parentDataHolder;
-			this.typeInfo = typeInfo;
 			this.pos = pos;
-			elementConverter = new RowConverter.RowPrimitiveConverter(this, 0);
+
+			if (elementClass.equals(Row.class)) {
+				this.elementConverter = createConverter(elementType, 0, elementTypeInfo, this);
+			} else {
+				this.elementConverter = new RowConverter.RowPrimitiveConverter(elementType, this, 0);
+			}
 		}
 
 		@Override
@@ -254,7 +322,7 @@ public class RowConverter extends GroupConverter implements ParentDataHolder {
 
 		@Override
 		public void end() {
-			parentDataHolder.add(pos, Iterables.<T>toArray(list, elementClass));
+			parentDataHolder.add(pos, list.toArray((T[]) Array.newInstance(elementClass, list.size())));
 		}
 
 		@Override
@@ -266,13 +334,11 @@ public class RowConverter extends GroupConverter implements ParentDataHolder {
 	static class MapConverter extends GroupConverter {
 		private final ParentDataHolder parentDataHolder;
 		private final Converter keyValueConverter;
-		private final MapTypeInfo typeInfo;
 		private final int pos;
 		private Map<Object, Object> map;
 
 		MapConverter(GroupType type, MapTypeInfo typeInfo, ParentDataHolder parentDataHolder, int pos) {
 			this.parentDataHolder = parentDataHolder;
-			this.typeInfo = typeInfo;
 			this.pos = pos;
 			this.keyValueConverter = new MapKeyValueConverter((GroupType) type.getType(0), typeInfo);
 		}
@@ -298,22 +364,14 @@ public class RowConverter extends GroupConverter implements ParentDataHolder {
 			private Object key;
 			private Object value;
 
-			MapKeyValueConverter(GroupType groupType, MapTypeInfo typeInformation) {
-				this.keyConverter = createConverter(groupType.getType(0), 0,
-					typeInformation.getKeyTypeInfo(), new ParentDataHolder() {
-						@Override
-						public void add(int fieldIndex, Object object) {
-							key = object;
-						}
-					});
+			MapKeyValueConverter(GroupType groupType, MapTypeInfo typeInfo) {
+				this.keyConverter = createConverter(
+						groupType.getType(0), 0, typeInfo.getKeyTypeInfo(),
+						(fieldIndex, object) -> key = object);
 
-				this.valueConverter = createConverter(groupType.getType(1), 1,
-					typeInformation.getValueTypeInfo(), new ParentDataHolder() {
-						@Override
-						public void add(int fieldIndex, Object object) {
-							value = object;
-						}
-					});
+				this.valueConverter = createConverter(
+						groupType.getType(1), 1, typeInfo.getValueTypeInfo(),
+						(fieldIndex, object) -> value = object);
 			}
 
 			@Override

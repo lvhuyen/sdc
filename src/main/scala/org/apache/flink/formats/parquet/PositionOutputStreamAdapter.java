@@ -20,6 +20,7 @@ package org.apache.flink.formats.parquet;
 
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.core.fs.FSDataOutputStream;
+
 import org.apache.parquet.io.PositionOutputStream;
 
 import java.io.IOException;

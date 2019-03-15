@@ -1,11 +1,14 @@
 package com.nbnco.csa.analysis.copper.sdc.data
+import java.sql.Timestamp
+import java.time.Instant
 
 /**
   * Created by Huyen on 5/9/18.
   */
-class PojoAms(var object_name: String, var customer_id: String, var metrics_date: java.time.Instant) {
-	def this () = this("", "", java.time.Instant.MIN)
-
+class PojoAms(var object_name: String,
+			  var customer_id: String,
+			  var metrics_date: Timestamp) {
+	def this () = this("", "", Timestamp.from(Instant.MIN))
 }
 
 object PojoAms {

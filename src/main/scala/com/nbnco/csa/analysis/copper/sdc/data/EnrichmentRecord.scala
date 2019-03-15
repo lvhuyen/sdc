@@ -33,7 +33,10 @@ object EnrichmentRecord {
 	def apply(raw: PojoNac): EnrichmentRecord = {
 		try {
 			val (nm_ds, nm_us) =
-				if (raw.max_additional_noise_margin_ds.isEmpty || raw.max_additional_noise_margin_us.isEmpty)
+				if (raw.max_additional_noise_margin_ds == null ||
+						raw.max_additional_noise_margin_ds.isEmpty ||
+						raw.max_additional_noise_margin_us == null ||
+						raw.max_additional_noise_margin_us.isEmpty)
 					(-1: Short, -1: Short)
 				else
 					(raw.max_additional_noise_margin_ds.toFloat.toShort, raw.max_additional_noise_margin_us.toFloat.toShort)

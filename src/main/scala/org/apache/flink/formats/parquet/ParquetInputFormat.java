@@ -23,6 +23,7 @@ import org.apache.flink.api.common.io.FileInputFormat;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.typeutils.RowTypeInfo;
+import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.fs.FileInputSplit;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.formats.parquet.utils.ParquetRecordReader;
@@ -31,131 +32,175 @@ import org.apache.flink.formats.parquet.utils.RowReadSupport;
 import org.apache.flink.metrics.Counter;
 import org.apache.flink.types.Row;
 import org.apache.flink.util.Preconditions;
+
 import org.apache.parquet.ParquetReadOptions;
 import org.apache.parquet.filter2.compat.FilterCompat;
 import org.apache.parquet.hadoop.ParquetFileReader;
 import org.apache.parquet.hadoop.util.HadoopInputFile;
 import org.apache.parquet.io.InputFile;
 import org.apache.parquet.schema.MessageType;
+import org.apache.parquet.schema.Type;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
  * The base InputFormat class to read from Parquet files.
  * For specific return types the {@link #convert(Row)} method need to be implemented.
  *
- * <P>Using {@link ParquetRecordReader} to Read files instead of {@link org.apache.flink.core.fs.FSDataInputStream},
+ * <P>Using {@link ParquetRecordReader} to read files instead of {@link org.apache.flink.core.fs.FSDataInputStream},
  * we override {@link #open(FileInputSplit)} and {@link #close()} to change the behaviors.
  *
  * @param <E> The type of record to read.
  */
-public abstract class ParquetInputFormat<E> extends FileInputFormat<E> implements
-        CheckpointableInputFormat<FileInputSplit, Tuple2<Long, Long>> {
-
-	protected static final long JULIAN_EPOCH_OFFSET_DAYS = 2440588;
-
-	protected static final long SECONDS_IN_DAY = 24L * 3600;
-	protected static final long MILLIS_IN_DAY = 24L * 3600 * 1000;
+public abstract class ParquetInputFormat<E>
+		extends FileInputFormat<E>
+		implements CheckpointableInputFormat<FileInputSplit, Tuple2<Long, Long>> {
 
 	private static final long serialVersionUID = 1L;
 
 	private static final Logger LOG = LoggerFactory.getLogger(ParquetInputFormat.class);
 
-	private static ByteBuffer byteBuffer = ByteBuffer.allocate(12).order(ByteOrder.LITTLE_ENDIAN);
+	/**
+	 * The flag to specify whether to skip file splits with wrong schema.
+	 */
+	private boolean skipWrongSchemaFileSplit = false;
+
+	/**
+	 * The flag to specify whether to skip corrupted record.
+	 */
+	private boolean skipCorruptedRecord = false;
+
+	/**
+	 * The flag to track that the current split should be skipped.
+	 */
+	private boolean skipThisSplit = false;
+
+	private TypeInformation[] fieldTypes;
+
+	private String[] fieldNames;
 
 	private transient Counter recordConsumed;
 
-	protected RowTypeInfo readType;
+	private transient MessageType expectedFileSchema;
 
-	protected final TypeInformation[] fieldTypes;
+	private transient ParquetRecordReader<Row> parquetRecordReader;
 
-	protected final String[] fieldNames;
+	/**
+	 * Read parquet files with given parquet file schema.
+	 *
+	 * @param path The path of the file to read.
+	 * @param messageType schema of parquet file
+	 */
 
-	protected transient ParquetRecordReader<Row> parquetRecordReader;
-
-	protected transient long recordsReadSinceLastSync;
-
-	protected long lastSyncedBlock = -1L;
-
-	protected ParquetInputFormat(Path path, TypeInformation[] fieldTypes, String[] fieldNames) {
+	protected ParquetInputFormat(Path path, MessageType messageType) {
 		super(path);
-		this.readType = new RowTypeInfo(fieldTypes, fieldNames);
-		this.fieldTypes = readType.getFieldTypes();
-		this.fieldNames = readType.getFieldNames();
+		this.expectedFileSchema = checkNotNull(messageType, "messageType");
+		RowTypeInfo rowTypeInfo = (RowTypeInfo) ParquetSchemaConverter.fromParquetType(expectedFileSchema);
+		this.fieldTypes = rowTypeInfo.getFieldTypes();
+		this.fieldNames = rowTypeInfo.getFieldNames();
+		// read whole parquet file as one file split
 		this.unsplittable = true;
 	}
 
-	protected Instant bigIntToTimestamp(byte[] value) {
-		byteBuffer.clear();
-		byteBuffer.put(value);
-		byteBuffer.rewind();
-		long nano = byteBuffer.getLong();
-		long day = byteBuffer.getInt() - JULIAN_EPOCH_OFFSET_DAYS;
-		return Instant.ofEpochSecond(day * SECONDS_IN_DAY + nano / 1_000_000_000, nano % 1_000_000_000);
+	@Override
+	public void configure(Configuration parameters) {
+		super.configure(parameters);
+
+		if (!this.skipWrongSchemaFileSplit) {
+			this.skipWrongSchemaFileSplit = parameters.getBoolean(PARQUET_SKIP_WRONG_SCHEMA_SPLITS, false);
+		}
+
+		if (this.skipCorruptedRecord) {
+			this.skipCorruptedRecord = parameters.getBoolean(PARQUET_SKIP_CORRUPTED_RECORD, false);
+		}
 	}
 
-	protected Instant bigIntToTimestamp(org.apache.parquet.io.api.Binary value) {
-		ByteBuffer byteBuffer = value.toByteBuffer().order(ByteOrder.LITTLE_ENDIAN);
-		long nano = byteBuffer.getLong();
-		long day = byteBuffer.getInt() - JULIAN_EPOCH_OFFSET_DAYS;
-		return Instant.ofEpochSecond(day * SECONDS_IN_DAY + nano / 1_000_000_000, nano % 1_000_000_000);
-	}
-
-	protected Instant microsecsToTimestamp(long microsecs) {
-		return Instant.ofEpochSecond(microsecs / 1_000_000, (microsecs % 1_000_000) * 1000);
+	/**
+	 * Configures the fields to be read and returned by the ParquetInputFormat. Selected fields must be present
+	 * in the configured schema.
+	 *
+	 * @param fieldNames Names of all selected fields.
+	 */
+	public void selectFields(String[] fieldNames) {
+		checkNotNull(fieldNames, "fieldNames");
+		this.fieldNames = fieldNames;
+		RowTypeInfo rowTypeInfo = (RowTypeInfo) ParquetSchemaConverter.fromParquetType(expectedFileSchema);
+		TypeInformation[] selectFieldTypes = new TypeInformation[fieldNames.length];
+		for (int i = 0; i < fieldNames.length; i++) {
+			try {
+				selectFieldTypes[i] = rowTypeInfo.getTypeAt(fieldNames[i]);
+			} catch (IndexOutOfBoundsException e) {
+				throw new IllegalArgumentException(String.format("Fail to access Field %s , "
+						+ "which is not contained in the file schema", fieldNames[i]), e);
+			}
+		}
+		this.fieldTypes = selectFieldTypes;
 	}
 
 	@Override
 	public Tuple2<Long, Long> getCurrentState() {
-		return new Tuple2<>(this.lastSyncedBlock, this.recordsReadSinceLastSync);
+		return parquetRecordReader.getCurrentReadPosition();
 	}
 
 	@Override
 	public void open(FileInputSplit split) throws IOException {
+		// reset the flag when open a new split
+		this.skipThisSplit = false;
 		org.apache.hadoop.conf.Configuration configuration = new org.apache.hadoop.conf.Configuration();
 		InputFile inputFile =
-			HadoopInputFile.fromPath(new org.apache.hadoop.fs.Path(split.getPath().toUri()), configuration);
+				HadoopInputFile.fromPath(new org.apache.hadoop.fs.Path(split.getPath().toUri()), configuration);
 		ParquetReadOptions options = ParquetReadOptions.builder().build();
 		ParquetFileReader fileReader = new ParquetFileReader(inputFile, options);
-		MessageType schema = fileReader.getFileMetaData().getSchema();
-		checkSchema(schema);
-		MessageType readSchema = ParquetSchemaConverter.toParquetType(readType, schema);
-		this.parquetRecordReader = new ParquetRecordReader<>(new RowReadSupport(), readSchema, FilterCompat.NOOP);
-		this.parquetRecordReader.initialize(fileReader, configuration);
-		if (this.recordConsumed == null) {
-			this.recordConsumed = getRuntimeContext().getMetricGroup().counter("parquet-record-consumed");
+		MessageType fileSchema = fileReader.getFileMetaData().getSchema();
+		MessageType readSchema = getReadSchema(fileSchema, split.getPath());
+		if (skipThisSplit) {
+			LOG.warn(String.format(
+					"Escaped the file split [%s] due to mismatch of file schema to expected result schema",
+					split.getPath().toString()));
+		} else {
+			this.parquetRecordReader = new ParquetRecordReader<>(new RowReadSupport(), readSchema, FilterCompat.NOOP);
+			this.parquetRecordReader.initialize(fileReader, configuration);
+			this.parquetRecordReader.setSkipCorruptedRecord(this.skipCorruptedRecord);
+
+			if (this.recordConsumed == null) {
+				this.recordConsumed = getRuntimeContext().getMetricGroup().counter("parquet-records-consumed");
+			}
+
+			LOG.debug(String.format("Open ParquetInputFormat with FileInputSplit [%s]", split.getPath().toString()));
 		}
-		LOG.debug(String.format("Open ParquetRowInputFormat with FileInputSplit [%s]", split.getPath().toString()));
 	}
 
 	@Override
 	public void reopen(FileInputSplit split, Tuple2<Long, Long> state) throws IOException {
 		Preconditions.checkNotNull(split, "reopen() cannot be called on a null split.");
 		Preconditions.checkNotNull(state, "reopen() cannot be called with a null initial state.");
+		this.open(split);
+		// seek to the read position in the split that we were at when the checkpoint was taken.
+		parquetRecordReader.seek(state.f0, state.f1);
+	}
 
-		try {
-			this.open(split);
-		} finally {
-			if (getCurrentState().f0 != -1) {
-				lastSyncedBlock = state.f0;
-				recordsReadSinceLastSync = state.f1;
-			}
-		}
+	/**
+	 * Get field names of read result.
+	 *
+	 * @return field names array
+	 */
+	protected String[] getFieldNames() {
+		return fieldNames;
+	}
 
-		if (lastSyncedBlock != -1) {
-			// open and read util the record we were before
-			// the checkpoint and discard the values
-			parquetRecordReader.seek(lastSyncedBlock);
-			for (int i = 0; i < recordsReadSinceLastSync; i++) {
-				// skip the record already processed
-				parquetRecordReader.nextRecord();
-			}
-		}
+	/**
+	 * Get field types of read result.
+	 *
+	 * @return field types array
+	 */
+	protected TypeInformation[] getFieldTypes() {
+		return fieldTypes;
 	}
 
 	@Override
@@ -167,6 +212,10 @@ public abstract class ParquetInputFormat<E> extends FileInputFormat<E> implement
 
 	@Override
 	public boolean reachedEnd() throws IOException {
+		if (skipThisSplit) {
+			return true;
+		}
+
 		return parquetRecordReader.reachEnd();
 	}
 
@@ -176,36 +225,66 @@ public abstract class ParquetInputFormat<E> extends FileInputFormat<E> implement
 			return null;
 		}
 
-		// Means start to create a new block
-		if (parquetRecordReader.getCurrentBlock() != lastSyncedBlock) {
-			lastSyncedBlock = parquetRecordReader.getCurrentBlock();
-			recordsReadSinceLastSync = 0;
-		}
-
-		if (parquetRecordReader.hasNextRecord()) {
-			recordsReadSinceLastSync++;
-			recordConsumed.inc();
-			return convert(parquetRecordReader.nextRecord());
-		}
-
-		return null;
+		recordConsumed.inc();
+		return convert(parquetRecordReader.nextRecord());
 	}
 
+	/**
+	 * This ParquetInputFormat read parquet record as Row by default. Sub classes of it can extend this method
+	 * to further convert row to other types, such as POJO, Map or Tuple.
+	 *
+	 * @param row row read from parquet file
+	 * @return E target result type
+	 */
 	protected abstract E convert(Row row);
 
-	private void checkSchema(MessageType schema) {
-		RowTypeInfo rootTypeInfo = (RowTypeInfo) ParquetSchemaConverter.fromParquetType(schema);
-
+	/**
+	 * Generates and returns the read schema based on the projected fields for a given file.
+	 *
+	 * @param fileSchema The schema of the given file.
+	 * @param filePath The path of the given file.
+	 * @return The read schema based on the given file's schema and the projected fields.
+	 */
+	private MessageType getReadSchema(MessageType fileSchema, Path filePath) {
+		RowTypeInfo fileTypeInfo = (RowTypeInfo) ParquetSchemaConverter.fromParquetType(fileSchema);
+		List<Type> types = new ArrayList<>();
 		for (int i = 0; i < fieldNames.length; ++i) {
 			String readFieldName = fieldNames[i];
 			TypeInformation<?> readFieldType = fieldTypes[i];
-			if (rootTypeInfo.getFieldIndex(readFieldName) < 0) {
-				throw new IllegalArgumentException(readFieldName + " can not be found in parquet schema");
+			if (fileTypeInfo.getFieldIndex(readFieldName) < 0) {
+				if (!skipWrongSchemaFileSplit) {
+					throw new IllegalArgumentException("Field " + readFieldName + " cannot be found in schema of "
+							+ " Parquet file: " + filePath + ".");
+				} else {
+					this.skipThisSplit = true;
+					return fileSchema;
+				}
 			}
 
-			if (!readFieldType.equals(rootTypeInfo.getTypeAt(readFieldName))) {
-				throw new IllegalArgumentException(readFieldName + " can not be converted to " + readFieldType);
+			if (!readFieldType.equals(fileTypeInfo.getTypeAt(readFieldName))) {
+				if (!skipWrongSchemaFileSplit) {
+					throw new IllegalArgumentException("Expecting type " + readFieldType + " for field " + readFieldName
+							+ " but found type " + fileTypeInfo.getTypeAt(readFieldName) + " in Parquet file: "
+							+ filePath + ".");
+				} else {
+					this.skipThisSplit = true;
+					return fileSchema;
+				}
 			}
+			types.add(fileSchema.getType(readFieldName));
 		}
+
+		return new MessageType(fileSchema.getName(), types);
 	}
+
+	/**
+	 * The config parameter which defines whether to skip file split with wrong schema.
+	 */
+	public static final String PARQUET_SKIP_WRONG_SCHEMA_SPLITS = "skip.splits.wrong.schema";
+
+	/**
+	 * The config parameter which defines whether to skip corrupted record.
+	 */
+	public static final String PARQUET_SKIP_CORRUPTED_RECORD = "skip.corrupted.record";
+
 }

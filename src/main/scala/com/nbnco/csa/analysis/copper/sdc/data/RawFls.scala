@@ -28,7 +28,7 @@ object RawFls {
 				UNKNOWN
 			else {
 				val regexTc4(_, ds, _, us) = pojoFls.avc_bandwidth_profile
-				RawFls(pojoFls.metrics_date.toEpochMilli,
+				RawFls(pojoFls.metrics_date.getTime,
 					pojoFls.uni_prid,
 					Map(
 						EnrichmentAttributeName.AVC -> pojoFls.avc_id,
