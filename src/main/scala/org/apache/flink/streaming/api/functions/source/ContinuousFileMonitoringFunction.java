@@ -170,7 +170,7 @@ public class ContinuousFileMonitoringFunction<OUT>
             long readConsistencyOffset,
             long directoryRescanInterval) {
 
-        LOG.warn("HUYEN Monitoring {}: {} ", format.getFilePaths().length, format.getFilePaths()[0].toString());
+        LOG.info("Started monitoring {} folder(s): {} ", format.getFilePaths().length, format.getFilePaths()[0].toString());
 
         Preconditions.checkArgument(
                 watchType == FileProcessingMode.PROCESS_ONCE || interval >= MIN_MONITORING_INTERVAL,

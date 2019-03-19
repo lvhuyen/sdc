@@ -48,7 +48,8 @@ object EnrichmentRecord {
 					EnrichmentAttributeName.NOISE_MARGIN_DS -> nm_ds,
 					EnrichmentAttributeName.NOISE_MARGIN_US -> nm_us,
 					EnrichmentAttributeName.DPBO_PROFILE -> {
-						if (raw.dpbo_profile_name.equals("ADP-VDSL_00dB")) 0: Byte else 1: Byte
+						if (raw.dpbo_profile_name != null && raw.dpbo_profile_name.equals("ADP-VDSL_00dB")) 0: Byte
+						else 1: Byte
 					}
 				))
 		} catch {

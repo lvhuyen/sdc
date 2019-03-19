@@ -14,8 +14,10 @@ class ChronosParquetFileInputFormat[PojoType](filePath: Path, typeInfo: TypeInfo
 		} catch {
 			case _: java.io.IOException =>
 				ChronosParquetFileInputFormat.LOG.warn("Error opening file: {}", split.getPath.getPath)
+				super.close()
 			case _: java.lang.RuntimeException =>
 				ChronosParquetFileInputFormat.LOG.warn("File with invalid format: {}", split.getPath.getPath)
+				super.close()
 			case a: Throwable => throw a
 		}
 	}

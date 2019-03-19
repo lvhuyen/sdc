@@ -208,6 +208,7 @@ public abstract class ParquetInputFormat<E>
 		if (parquetRecordReader != null) {
 			parquetRecordReader.close();
 		}
+		super.close();
 	}
 
 	@Override

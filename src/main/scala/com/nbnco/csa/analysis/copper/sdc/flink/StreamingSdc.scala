@@ -13,10 +13,12 @@ import org.apache.flink.api.java.io.TextInputFormat
 import org.apache.flink.api.java.utils.ParameterTool
 import org.apache.flink.contrib.streaming.state.RocksDBStateBackend
 import org.apache.flink.core.fs.Path
+import org.apache.flink.runtime.state.filesystem.FsStateBackend
+import org.apache.flink.runtime.state.memory.MemoryStateBackend
 import org.apache.flink.streaming.api.environment.CheckpointConfig.ExternalizedCheckpointCleanup
 import org.apache.flink.streaming.api.functions.source.FileProcessingMode
 import org.apache.flink.streaming.api.scala.{DataStream, _}
-import org.apache.flink.streaming.api.windowing.assigners.{EventTimeSessionWindows}
+import org.apache.flink.streaming.api.windowing.assigners.EventTimeSessionWindows
 import org.apache.flink.streaming.api.windowing.time.Time
 import org.apache.flink.streaming.api.{CheckpointingMode, TimeCharacteristic}
 
@@ -65,11 +67,20 @@ object StreamingSdc {
 		val cfgCheckpointMinPause = appConfig.getLong("checkpoint.minimum-pause", 600000L)
 		val cfgCheckpointStopJobWhenFail = appConfig.getBoolean("checkpoint.stop-job-when-fail", true)
 
+//		val streamEnv =
+//			if (cfgCheckpointEnabled) StreamExecutionEnvironment.getExecutionEnvironment
+//					.setStateBackend(new RocksDBStateBackend(cfgCheckpointLocation, true))
+//					.enableCheckpointing(cfgCheckpointInterval)
+//			else StreamExecutionEnvironment.getExecutionEnvironment
+
+
 		val streamEnv =
 			if (cfgCheckpointEnabled) StreamExecutionEnvironment.getExecutionEnvironment
-					.setStateBackend(new RocksDBStateBackend(cfgCheckpointLocation, true))
+					.setStateBackend(new FsStateBackend(cfgCheckpointLocation, true))
 					.enableCheckpointing(cfgCheckpointInterval)
 			else StreamExecutionEnvironment.getExecutionEnvironment
+
+
 		if (cfgCheckpointEnabled) {
 			streamEnv.getCheckpointConfig.setMinPauseBetweenCheckpoints(cfgCheckpointMinPause)
 			streamEnv.getCheckpointConfig.setCheckpointTimeout(cfgCheckpointTimeout)
@@ -139,7 +150,7 @@ object StreamingSdc {
 					FileProcessingMode.PROCESS_CONTINUOUSLY, cfgEnrichmentScanInterval, cfgEnrichmentScanConsistency)
 				.setParallelism(cfgEnrichmentReaderParallelism)
 				.uid(OperatorId.SOURCE_NAC_RAW)
-        		.filter(_.rtx_attainable_net_data_rate_ds.equals("0.0"))
+        		.filter(!_.rtx_attainable_net_data_rate_ds.equals("0.0"))
 				.map(EnrichmentRecord(_))
 				.name("Nac parquet")
 
@@ -159,7 +170,7 @@ object StreamingSdc {
 				.name("Atten375 parquet")
 
 		return streamAmsFlsParquet
-//				.union(streamNacParquet).union(streamAtten375Parquet)
+				.union(streamNacParquet).union(streamAtten375Parquet)
 	}
 
 	def readPercentilesTable(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment) = {

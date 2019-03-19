@@ -45,9 +45,9 @@ object SdcParquetFileSink {
 //				.build()
 //	}
 
-	def buildSinkGeneric[T <: TemporalEvent](schema: Schema, outputPath: String, prefix: String, suffixFormat: String)(implicit ct: ClassTag[T]): StreamingFileSink[T] = {
-		val a = ParquetAvroWriters.forGenericRecord(schema)
-		StreamingFileSink.forBulkFormat(new Path(outputPath), a).asInstanceOf[StreamingFileSink.BulkFormatBuilder[T, String]]
+	def buildSinkGeneric[T <: TemporalEvent](schema: Schema, outputPath: String, prefix: String, suffixFormat: String): StreamingFileSink[T] = {
+		StreamingFileSink.forBulkFormat(new Path(outputPath), ParquetAvroWriters.forGenericRecord(schema))
+				.asInstanceOf[StreamingFileSink.BulkFormatBuilder[T, String]]
 				//				.withBucketCheckInterval(3L * 60L * 1000L)
 				.withBucketAssigner(new SdcTimeBucketAssigner[T](prefix, suffixFormat))
 				.build()
