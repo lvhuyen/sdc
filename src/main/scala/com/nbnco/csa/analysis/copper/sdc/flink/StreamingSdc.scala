@@ -1,6 +1,7 @@
 package com.nbnco.csa.analysis.copper.sdc.flink
 
 import java.time.Instant
+import java.util.concurrent.TimeUnit
 
 import com.nbnco.csa.analysis.copper.sdc.data._
 import com.nbnco.csa.analysis.copper.sdc.flink.operator._
@@ -21,6 +22,7 @@ import org.apache.flink.streaming.api.scala.{DataStream, _}
 import org.apache.flink.streaming.api.windowing.assigners.EventTimeSessionWindows
 import org.apache.flink.streaming.api.windowing.time.Time
 import org.apache.flink.streaming.api.{CheckpointingMode, TimeCharacteristic}
+import org.elasticsearch.action.search.SearchResponse
 
 object StreamingSdc {
 	object OperatorId {
@@ -243,13 +245,13 @@ object StreamingSdc {
 				.uid(OperatorId.SOURCE_SDC_HISTORICAL)
 				.assignTimestampsAndWatermarks(new DslamRecordTimeAssigner[String])
 				.name("Read SDC Historical")
-		val streamSdcRawHistorical: DataStream[SdcRawHistorical] = streamDslamHistorical
-				.flatMap(new ParseSdcRecord[SdcRawHistorical]())
-				.uid(OperatorId.SDC_PARSER_HISTORICAL)
-				.name("Parse SDC Historical")
+//		val streamSdcRawHistorical: DataStream[SdcRawHistorical] = streamDslamHistorical
+//				.flatMap(new ParseSdcRecord[SdcRawHistorical]())
+//				.uid(OperatorId.SDC_PARSER_HISTORICAL)
+//				.name("Parse SDC Historical")
 
 		return (streamDslamHistorical.map(r => r.metadata).uid("Metadata_Extract_Historical"),
-				streamSdcRawHistorical)
+				streamDslamHistorical)
 	}
 
 	def readInstantData(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): (DataStream[DslamMetadata], DataStream[SdcRawInstant]) = {
@@ -272,15 +274,45 @@ object StreamingSdc {
 				.uid(OperatorId.SOURCE_SDC_INSTANT)
 				.assignTimestampsAndWatermarks(new DslamRecordTimeAssigner[String])
 				.name("Read SDC Instant")
-		val streamSdcRawInstant: DataStream[SdcRawInstant] = streamDslamInstant
-				.flatMap(new ParseSdcRecord[SdcRawInstant])
-				.uid(OperatorId.SDC_PARSER_INSTANT)
-				.name("Parse SDC Instant")
-				.filter(r => !r.data.if_admin_status.equalsIgnoreCase("down"))
-				.uid(OperatorId.SDC_PARSER_INSTANT + "_1")
+//		val streamSdcRawInstant: DataStream[SdcRawInstant] = streamDslamInstant
+//				.flatMap(new ParseSdcRecord[SdcRawInstant])
+//				.uid(OperatorId.SDC_PARSER_INSTANT)
+//				.name("Parse SDC Instant")
+//				.filter(r => !r.data.if_admin_status.equalsIgnoreCase("down"))
+//				.uid(OperatorId.SDC_PARSER_INSTANT + "_1")
 
 		return (streamDslamInstant.map(_.metadata).uid("Metadata_Extract_Instant"),
-				streamSdcRawInstant)
+				streamDslamInstant)
+	}
+
+	def readMonitoringData(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): DataStream[(String, Boolean)] = {
+		val path = appConfig.get("source.nosync-candidate.path")
+		streamEnv.readFile(new TextInputFormat(new Path(path)), path, FileProcessingMode.PROCESS_CONTINUOUSLY, 1000)
+				.filter(_.startsWith("AVC"))
+        		.map{r =>
+					val (avc, flag) = r.span(!_.equals(','))
+					(avc, flag.equals(",on"))
+				}
+	}
+
+	def readHistoricalDataFromES(appConfig: ParameterTool,
+								 streamEnv: StreamExecutionEnvironment,
+								 streamInput: DataStream[(String, Boolean)]): (DataStream[SdcCompact], DataStream[((String, String), Boolean)], DataStream[(String, Boolean)]) = {
+		val esUrl = appConfig.get("sink.elasticsearch.endpoint")
+		val indexName = s"${appConfig.get("sink.elasticsearch.sdc.index-name", "sdc-counters-prod")}*"
+		val docType = appConfig.get("sink.elasticsearch.sdc.doc-type", "counter")
+		val recordsCount = appConfig.getInt("source.nosync-candicate.measurements-count", 96)
+		val timeout = appConfig.getInt("source.nosync-candicate.timeout-seconds", 3)
+
+		val streamEsSearchResponse = AsyncDataStream.unorderedWait(streamInput,
+			new ReadHistoricalDataFromES(esUrl, indexName, docType, recordsCount, timeout), timeout + 5, TimeUnit.SECONDS, 100)
+
+		val tagToggle = OutputTag[((String, String), Boolean)]("NoSyncTogglePhysicalRef")
+		val tagRetry = OutputTag[(String, Boolean)]("NoSyncToggleRetry")
+
+		val streamEsData = streamEsSearchResponse.process(new ParseEsQueryResult(tagToggle, tagRetry))
+
+		(streamEsData, streamEsData.getSideOutput(tagToggle), streamEsData.getSideOutput(tagRetry))
 	}
 
 	def main(args: Array[String]) {
@@ -335,8 +367,8 @@ object StreamingSdc {
 		//  		.union(readEnrichmentStream(appConfig, streamEnv))
 
 		/** Read SDC streams */
-		val (streamDslamMetadataInstant, streamSdcRawInstant) = readInstantData(appConfig, streamEnv)
-		val (streamDslamMetadataHistorical, streamSdcRawHistorical) = readHistoricalData(appConfig, streamEnv)
+		val (streamDslamMetadataInstant, streamDslamInstant) = readInstantData(appConfig, streamEnv)
+		val (streamDslamMetadataHistorical, streamDslamHistorical) = readHistoricalData(appConfig, streamEnv)
 
 		/** Find missing DSLAM */
 		lazy val streamDslamMissingInstant = streamDslamMetadataInstant
@@ -360,23 +392,23 @@ object StreamingSdc {
 		val outputTagH = OutputTag[SdcEnrichedHistorical]("enriched_h")
 
 //		val streamEnriched: DataStream[SdcEnrichedBase] =
-//			streamSdcRawInstant.map(_.asInstanceOf[SdcRawBase]).uid("Huyen1")
-//					.union(streamSdcRawHistorical.map(_.asInstanceOf[SdcRawBase]).uid("Huyen2"))
+//			streamDslamInstant.map(_.asInstanceOf[SdcRawBase]).uid("Huyen1")
+//					.union(streamDslamHistorical.map(_.asInstanceOf[SdcRawBase]).uid("Huyen2"))
 //					.keyBy(r => (r.dslam, r.port))
 //					.connect(streamEnrichmentAgg.keyBy(r => (r.dslam, r.port)))
 //					.process(new EnrichSdcRecord(outputTagI, outputTagH))
 //					.uid(OperatorId.SDC_ENRICHER)
 //					.name("Enrich SDC records")
 
-		val ruleStateDescriptor = new MapStateDescriptor(
+		val pctlsStateDescriptor = new MapStateDescriptor(
 			"PercentilessBroadcastState",
 			BasicTypeInfo.STRING_TYPE_INFO, BasicArrayTypeInfo.FLOAT_ARRAY_TYPE_INFO);
 		val streamPctls = readPercentilesTable(appConfig, streamEnv)
-		val streamPctlsBroadcast = streamPctls.broadcast(ruleStateDescriptor)
+		val streamPctlsBroadcast = streamPctls.broadcast(pctlsStateDescriptor)
 
 		val streamEnriched: DataStream[SdcEnrichedBase] =
-			streamSdcRawInstant.map(_.asInstanceOf[CopperLine]).uid("Huyen1")
-					.union(streamSdcRawHistorical.map(_.asInstanceOf[CopperLine]).uid("Huyen2"))
+			streamDslamInstant.map(_.asInstanceOf[CopperLine]).uid("Huyen1")
+					.union(streamDslamHistorical.map(_.asInstanceOf[CopperLine]).uid("Huyen2"))
 					.union(streamEnrichmentAgg.map(_.asInstanceOf[CopperLine]).uid("Huyen3"))
 					.keyBy(r => (r.dslam, r.port))
 					.connect(streamPctlsBroadcast)
@@ -389,8 +421,18 @@ object StreamingSdc {
 		val streamEnrichedInstant = streamEnriched.getSideOutput(outputTagI)
 		val streamEnrichedHistorical = streamEnriched.getSideOutput(outputTagH)
 
-		/** Output */
+		/** Handling Nosync */
+		val streamNosyncCandidate = readMonitoringData(appConfig, streamEnv)
+		val (streamNosyncEsData, streamNosyncToggle, streamNosyncRetry) =
+			readHistoricalDataFromES(appConfig, streamEnv, streamNosyncCandidate)
 
+		val streamNosyncData = new DataStreamUtils(streamEnrichedHistorical.map(r => SdcCombined(r)))
+				.reinterpretAsKeyedStream(r => (r.dslam, r.port))
+        		.connect(streamNosyncToggle.keyBy(r => r._1))
+        		.flatMap(new NosyncCandicateFilter())
+        		.union(streamNosyncEsData)
+
+		/** Output */
 		if (debug) {
 			if (cfgParquetEnabled) {
 				streamEnrichedInstant.addSink(
@@ -402,8 +444,8 @@ object StreamingSdc {
 						cfgParquetHistoricalPath, cfgParquetPrefix, cfgParquetSuffixFormat))
 						.setParallelism(cfgElasticSearchAverageParallelism)
 			}
-//			streamSdcRawHistorical.print()
-			//			streamSdcRawInstant.print()
+//			streamDslamHistorical.print()
+			//			streamDslamInstant.print()
 			//			streamEnrichment.print()
 //			streamEnrichedInstant.print()
 //			streamEnriched.print()
@@ -412,8 +454,8 @@ object StreamingSdc {
 			//			streamEnriched.print()
 			//			streamNotEnrichable.print()
 			//			if (cfgElasticSearchAverageEnabled) streamAverage.filter(s => s.enrich.avcId.equals("AVC000066198558")).print()
-			//			streamSdcRawInstant.map(_.toString).addSink(SdcParquetFileSink.buildSink("file:///Users/Huyen/Desktop/SDCTest/output"))
-			//			streamSdcRawInstant.addSink(SdcParquetFileSink.buildSink[SdcRawInstant](cfgParquetInstantPath, cfgParquetPrefix, cfgParquetSuffixFormat))
+			//			streamDslamInstant.map(_.toString).addSink(SdcParquetFileSink.buildSink("file:///Users/Huyen/Desktop/SDCTest/output"))
+			//			streamDslamInstant.addSink(SdcParquetFileSink.buildSink[SdcRawInstant](cfgParquetInstantPath, cfgParquetPrefix, cfgParquetSuffixFormat))
 			//			streamEnriched
 			//					.addSink(SdcElasticSearchSink.createSink[SdcEnriched](cfgElasticSearchEndpoint,
 			//						cfgElasticSearchCombinedSdcIndexName,
