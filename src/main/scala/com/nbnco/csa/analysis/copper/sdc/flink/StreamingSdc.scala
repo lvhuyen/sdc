@@ -20,7 +20,7 @@ import org.apache.flink.streaming.api.environment.CheckpointConfig.ExternalizedC
 import org.apache.flink.streaming.api.functions.source.FileProcessingMode
 import org.apache.flink.streaming.api.functions.timestamps.BoundedOutOfOrdernessTimestampExtractor
 import org.apache.flink.streaming.api.scala.{DataStream, _}
-import org.apache.flink.streaming.api.windowing.assigners.EventTimeSessionWindows
+import org.apache.flink.streaming.api.windowing.assigners.{EventTimeSessionWindows, TumblingProcessingTimeWindows}
 import org.apache.flink.streaming.api.windowing.time.Time
 import org.apache.flink.streaming.api.{CheckpointingMode, TimeCharacteristic}
 import org.apache.flink.table.api.Tumble
@@ -378,24 +378,30 @@ object StreamingSdc {
 			def extractTimestamp(t: DslamRaw[String]): Long = t.metadata.ts
 		}
 
+		val streamDslamFull = streamDslamInstant.assignTimestampsAndWatermarks(timestampAndWatermarkAssigner)
+								.union(streamDslamHistorical.assignTimestampsAndWatermarks(timestampAndWatermarkAssigner2))
+
+		val streamMerged = streamDslamFull.keyBy(_.metadata.name)
+				.window(TumblingProcessingTimeWindows.of(Time.minutes(15)))
+        		.aggregate(new AggregateRawDslamScala.AggIncremental, new AggregateRawDslamScala.AggFinal)
+
+		streamMerged.print()
+
+
+		/** Use Table API to merge two streams I and H
 		import scala.collection.JavaConverters._
 		val streamDslamFull = streamDslamInstant.assignTimestampsAndWatermarks(timestampAndWatermarkAssigner)
 								.union(streamDslamHistorical.assignTimestampsAndWatermarks(timestampAndWatermarkAssigner2))
         		.map(r => (r.metadata.ts, r.metadata.isInstant, r.metadata.name, r.metadata.columns, r.data.asJava))
-
 		val tableEnv = StreamTableEnvironment.create(streamEnv)
 		val tableDslamFull = tableEnv.fromDataStream(streamDslamFull, 'ts.rowtime, 'isInstant, 'name, 'columns, 'data)
-
-		// register function
-		tableEnv.registerFunction("AggDslam", new AggregateRawDslam())
-
+		tableEnv.registerFunction("AggDslam", new AggregateRawDslamJavaTableAPI())
 		val windowedTable = tableDslamFull
 				.window(Tumble over 900.seconds on 'ts as 'sdcWindow)
 				.groupBy('sdcWindow, 'name)
 				.select("sdcWindow.start, name, AggDslam(isInstant, columns, data)")
 		val streamResult = tableEnv.toRetractStream[(java.sql.Timestamp, String, DslamCompact)](windowedTable)
-
-		streamResult.startNewChain().print()
+		streamResult.startNewChain().print() */
 
 
 		/** Find missing DSLAM */

@@ -5,7 +5,7 @@ import org.apache.flink.table.functions.AggregateFunction;
 
 import java.util.*;
 
-public class AggregateRawDslam extends AggregateFunction<DslamCompact, DslamCompact> {
+public class AggregateRawDslamJavaTableAPI extends AggregateFunction<DslamCompact, DslamCompact> {
 
     @Override
     public DslamCompact createAccumulator() {
