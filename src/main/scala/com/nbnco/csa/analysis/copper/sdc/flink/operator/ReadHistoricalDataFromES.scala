@@ -2,7 +2,6 @@ package com.nbnco.csa.analysis.copper.sdc.flink.operator
 
 import java.util.concurrent.TimeUnit
 
-import com.nbnco.csa.analysis.copper.sdc.data.SdcCompact
 import com.nbnco.csa.analysis.copper.sdc.flink.operator.ReadHistoricalDataFromES.FieldName._
 import com.nbnco.csa.analysis.copper.sdc.flink.operator.ReadHistoricalDataFromES.{ConnectTimeout, LOG, SocketTimeout}
 import org.apache.flink.runtime.concurrent.Executors
@@ -14,12 +13,10 @@ import org.elasticsearch.action.search.{SearchRequest, SearchResponse}
 import org.elasticsearch.client.{RestClient, RestClientBuilder, RestHighLevelClient}
 import org.elasticsearch.common.unit.TimeValue
 import org.elasticsearch.index.query.QueryBuilders
-import org.elasticsearch.rest.RestStatus
 import org.elasticsearch.search.builder.SearchSourceBuilder
 import org.elasticsearch.search.sort.{FieldSortBuilder, SortOrder}
 import org.slf4j.{Logger, LoggerFactory}
 
-import scala.collection.JavaConversions._
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.util.{Failure, Success, Try}
 

@@ -21,6 +21,10 @@ package object data {
 	val PORT_PATTERN_UNKNOWN = -1
 	val PORT_PATTERN_DEFAULT = 0
 
+	object DslamType extends Enumeration {
+		type EnrichmentAttributeName = Value
+		val NONE, INSTANT, HISTORICAL, BOTH = Value
+	}
 
 	object EnrichmentAttributeName extends Enumeration {
 		type EnrichmentAttributeName = Value

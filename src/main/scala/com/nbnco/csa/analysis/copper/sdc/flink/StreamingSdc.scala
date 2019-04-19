@@ -18,11 +18,13 @@ import org.apache.flink.runtime.state.filesystem.FsStateBackend
 import org.apache.flink.runtime.state.memory.MemoryStateBackend
 import org.apache.flink.streaming.api.environment.CheckpointConfig.ExternalizedCheckpointCleanup
 import org.apache.flink.streaming.api.functions.source.FileProcessingMode
+import org.apache.flink.streaming.api.functions.timestamps.BoundedOutOfOrdernessTimestampExtractor
 import org.apache.flink.streaming.api.scala.{DataStream, _}
 import org.apache.flink.streaming.api.windowing.assigners.EventTimeSessionWindows
 import org.apache.flink.streaming.api.windowing.time.Time
 import org.apache.flink.streaming.api.{CheckpointingMode, TimeCharacteristic}
-import org.elasticsearch.action.search.SearchResponse
+import org.apache.flink.table.api.Tumble
+import org.apache.flink.table.api.scala._
 
 object StreamingSdc {
 	object OperatorId {
@@ -225,7 +227,7 @@ object StreamingSdc {
 		return flsRaw
 	}
 
-	def readHistoricalData(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): (DataStream[DslamMetadata], DataStream[SdcRawHistorical]) = {
+	def readHistoricalData(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): (DataStream[DslamMetadata], DataStream[DslamRaw[String]]) = {
 		val cfgSdcHistoricalLocation = appConfig.get("sources.sdc-historical.path", "s3://thor-pr-data-raw-fttx/fttx.sdc.copper.history.combined/")
 		val cfgSdcHistoricalScanInterval = appConfig.getLong("sources.sdc-historical.scan-interval", 10000L)
 		val cfgSdcHistoricalScanConsistency = appConfig.getLong("sources.sdc-historical.scan-consistency-offset", 2000L)
@@ -243,7 +245,6 @@ object StreamingSdc {
 					FileProcessingMode.PROCESS_CONTINUOUSLY,
 					cfgSdcHistoricalScanInterval, cfgSdcHistoricalScanConsistency)
 				.uid(OperatorId.SOURCE_SDC_HISTORICAL)
-				.assignTimestampsAndWatermarks(new DslamRecordTimeAssigner[String])
 				.name("Read SDC Historical")
 //		val streamSdcRawHistorical: DataStream[SdcRawHistorical] = streamDslamHistorical
 //				.flatMap(new ParseSdcRecord[SdcRawHistorical]())
@@ -254,7 +255,7 @@ object StreamingSdc {
 				streamDslamHistorical)
 	}
 
-	def readInstantData(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): (DataStream[DslamMetadata], DataStream[SdcRawInstant]) = {
+	def readInstantData(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): (DataStream[DslamMetadata], DataStream[DslamRaw[String]]) = {
 		val cfgSdcInstantLocation = appConfig.get("sources.sdc-instant.path", "s3://thor-pr-data-raw-fttx/fttx.sdc.copper.history.combined/instant")
 		val cfgSdcInstantScanInterval = appConfig.getLong("sources.sdc-instant.scan-interval", 10000L)
 		val cfgSdcInstantScanConsistency = appConfig.getLong("sources.sdc-instant.scan-consistency-offset", 2000L)
@@ -272,7 +273,6 @@ object StreamingSdc {
 					FileProcessingMode.PROCESS_CONTINUOUSLY,
 					cfgSdcInstantScanInterval, cfgSdcInstantScanConsistency)
 				.uid(OperatorId.SOURCE_SDC_INSTANT)
-				.assignTimestampsAndWatermarks(new DslamRecordTimeAssigner[String])
 				.name("Read SDC Instant")
 //		val streamSdcRawInstant: DataStream[SdcRawInstant] = streamDslamInstant
 //				.flatMap(new ParseSdcRecord[SdcRawInstant])
@@ -286,7 +286,7 @@ object StreamingSdc {
 	}
 
 	def readMonitoringData(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): DataStream[(String, Boolean)] = {
-		val path = appConfig.get("source.nosync-candidate.path")
+		val path = appConfig.get("source.nosync-candidate.path", "file:///Users/Huyen/Desktop/SDCTest/input/es")
 		streamEnv.readFile(new TextInputFormat(new Path(path)), path, FileProcessingMode.PROCESS_CONTINUOUSLY, 1000)
 				.filter(_.startsWith("AVC"))
         		.map{r =>
@@ -370,6 +370,34 @@ object StreamingSdc {
 		val (streamDslamMetadataInstant, streamDslamInstant) = readInstantData(appConfig, streamEnv)
 		val (streamDslamMetadataHistorical, streamDslamHistorical) = readHistoricalData(appConfig, streamEnv)
 
+		val timestampAndWatermarkAssigner = new BoundedOutOfOrdernessTimestampExtractor[DslamRaw[String]](Time.minutes(1)) {
+			 def extractTimestamp(t: DslamRaw[String]): Long = t.metadata.ts
+		}
+
+		val timestampAndWatermarkAssigner2 = new BoundedOutOfOrdernessTimestampExtractor[DslamRaw[String]](Time.minutes(1)) {
+			def extractTimestamp(t: DslamRaw[String]): Long = t.metadata.ts
+		}
+
+		import scala.collection.JavaConverters._
+		val streamDslamFull = streamDslamInstant.assignTimestampsAndWatermarks(timestampAndWatermarkAssigner)
+								.union(streamDslamHistorical.assignTimestampsAndWatermarks(timestampAndWatermarkAssigner2))
+        		.map(r => (r.metadata.ts, r.metadata.isInstant, r.metadata.name, r.metadata.columns, r.data.asJava))
+
+		val tableEnv = StreamTableEnvironment.create(streamEnv)
+		val tableDslamFull = tableEnv.fromDataStream(streamDslamFull, 'ts.rowtime, 'isInstant, 'name, 'columns, 'data)
+
+		// register function
+		tableEnv.registerFunction("AggDslam", new AggregateRawDslam())
+
+		val windowedTable = tableDslamFull
+				.window(Tumble over 900.seconds on 'ts as 'sdcWindow)
+				.groupBy('sdcWindow, 'name)
+				.select("sdcWindow.start, name, AggDslam(isInstant, columns, data)")
+		val streamResult = tableEnv.toRetractStream[(java.sql.Timestamp, String, DslamCompact)](windowedTable)
+
+		streamResult.startNewChain().print()
+
+
 		/** Find missing DSLAM */
 		lazy val streamDslamMissingInstant = streamDslamMetadataInstant
 				.keyBy(_.name)
@@ -406,43 +434,43 @@ object StreamingSdc {
 		val streamPctls = readPercentilesTable(appConfig, streamEnv)
 		val streamPctlsBroadcast = streamPctls.broadcast(pctlsStateDescriptor)
 
-		val streamEnriched: DataStream[SdcEnrichedBase] =
-			streamDslamInstant.map(_.asInstanceOf[CopperLine]).uid("Huyen1")
-					.union(streamDslamHistorical.map(_.asInstanceOf[CopperLine]).uid("Huyen2"))
-					.union(streamEnrichmentAgg.map(_.asInstanceOf[CopperLine]).uid("Huyen3"))
-					.keyBy(r => (r.dslam, r.port))
-					.connect(streamPctlsBroadcast)
-					.process(new EnrichSdcRecord(outputTagI, outputTagH))
-					.uid(OperatorId.SDC_ENRICHER)
-					.name("Enrich SDC records")
+//		val streamEnriched: DataStream[SdcEnrichedBase] =
+//			streamDslamInstant.map(_.asInstanceOf[CopperLine]).uid("Huyen1")
+//					.union(streamDslamHistorical.map(_.asInstanceOf[CopperLine]).uid("Huyen2"))
+//					.union(streamEnrichmentAgg.map(_.asInstanceOf[CopperLine]).uid("Huyen3"))
+//					.keyBy(r => (r.dslam, r.port))
+//					.connect(streamPctlsBroadcast)
+//					.process(new EnrichSdcRecord(outputTagI, outputTagH))
+//					.uid(OperatorId.SDC_ENRICHER)
+//					.name("Enrich SDC records")
 
 
 		/** split SDC streams into instant and historical */
-		val streamEnrichedInstant = streamEnriched.getSideOutput(outputTagI)
-		val streamEnrichedHistorical = streamEnriched.getSideOutput(outputTagH)
+//		val streamEnrichedInstant = streamEnriched.getSideOutput(outputTagI)
+//		val streamEnrichedHistorical = streamEnriched.getSideOutput(outputTagH)
 
 		/** Handling Nosync */
-		val streamNosyncCandidate = readMonitoringData(appConfig, streamEnv)
-		val (streamNosyncEsData, streamNosyncToggle, streamNosyncRetry) =
-			readHistoricalDataFromES(appConfig, streamEnv, streamNosyncCandidate)
+//		val streamNosyncCandidate = readMonitoringData(appConfig, streamEnv)
+//		val (streamNosyncEsData, streamNosyncToggle, streamNosyncRetry) =
+//			readHistoricalDataFromES(appConfig, streamEnv, streamNosyncCandidate)
 
-		val streamNosyncData = new DataStreamUtils(streamEnrichedHistorical.map(r => SdcCombined(r)))
-				.reinterpretAsKeyedStream(r => (r.dslam, r.port))
-        		.connect(streamNosyncToggle.keyBy(r => r._1))
-        		.flatMap(new NosyncCandicateFilter())
-        		.union(streamNosyncEsData)
+//		val streamNosyncData = new DataStreamUtils(streamEnrichedHistorical.map(r => SdcCombined(r)))
+//				.reinterpretAsKeyedStream(r => (r.dslam, r.port))
+//        		.connect(streamNosyncToggle.keyBy(r => r._1))
+//        		.flatMap(new NosyncCandicateFilter())
+//        		.union(streamNosyncEsData)
 
 		/** Output */
 		if (debug) {
 			if (cfgParquetEnabled) {
-				streamEnrichedInstant.addSink(
-					SdcParquetFileSink.buildSinkGeneric[SdcEnrichedInstant](SdcEnrichedInstant.getSchema(),
-						cfgParquetInstantPath, cfgParquetPrefix, cfgParquetSuffixFormat))
-						.setParallelism(cfgElasticSearchAverageParallelism)
-				streamEnrichedHistorical.addSink(
-					SdcParquetFileSink.buildSinkGeneric[SdcEnrichedHistorical](SdcEnrichedHistorical.getSchema(),
-						cfgParquetHistoricalPath, cfgParquetPrefix, cfgParquetSuffixFormat))
-						.setParallelism(cfgElasticSearchAverageParallelism)
+//				streamEnrichedInstant.addSink(
+//					SdcParquetFileSink.buildSinkGeneric[SdcEnrichedInstant](SdcEnrichedInstant.getSchema(),
+//						cfgParquetInstantPath, cfgParquetPrefix, cfgParquetSuffixFormat))
+//						.setParallelism(cfgElasticSearchAverageParallelism)
+//				streamEnrichedHistorical.addSink(
+//					SdcParquetFileSink.buildSinkGeneric[SdcEnrichedHistorical](SdcEnrichedHistorical.getSchema(),
+//						cfgParquetHistoricalPath, cfgParquetPrefix, cfgParquetSuffixFormat))
+//						.setParallelism(cfgElasticSearchAverageParallelism)
 			}
 //			streamDslamHistorical.print()
 			//			streamDslamInstant.print()
@@ -468,19 +496,19 @@ object StreamingSdc {
 			//			combined.map(r=>r.toString).addSink(ElasticSearch.createSink())
 			//			sdcInErr.print()
 		} else {
-			if (cfgElasticSearchCombinedSdcEnabled)
-				streamEnriched
-						.addSink(SdcElasticSearchSink.createUpdatableSdcElasticSearchSink[SdcEnrichedBase](
-							cfgElasticSearchEndpoint,
-							cfgElasticSearchCombinedSdcIndexName,
-							cfgElasticSearchBulkActions,
-							cfgElasticSearchBulkSize,
-							cfgElasticSearchBulkInterval,
-							cfgElasticSearchBackoffDelay,
-							cfgElasticSearchMaxRetries))
-						.setParallelism(cfgElasticSearchCombinedSdcParallelism)
-						.uid(OperatorId.SINK_ELASTIC_COMBINED)
-						.name("ES - Combined")
+//			if (cfgElasticSearchCombinedSdcEnabled)
+//				streamEnriched
+//						.addSink(SdcElasticSearchSink.createUpdatableSdcElasticSearchSink[SdcEnrichedBase](
+//							cfgElasticSearchEndpoint,
+//							cfgElasticSearchCombinedSdcIndexName,
+//							cfgElasticSearchBulkActions,
+//							cfgElasticSearchBulkSize,
+//							cfgElasticSearchBulkInterval,
+//							cfgElasticSearchBackoffDelay,
+//							cfgElasticSearchMaxRetries))
+//						.setParallelism(cfgElasticSearchCombinedSdcParallelism)
+//						.uid(OperatorId.SINK_ELASTIC_COMBINED)
+//						.name("ES - Combined")
 
 			if (cfgElasticSearchEnrichmentEnabled)
 				streamEnrichmentAgg
@@ -510,28 +538,28 @@ object StreamingSdc {
 			//					.uid(OperatorId.SINK_ELASTIC_UNENRICHABLE)
 			//					.name("ES - Unenrichable")
 
-			if (cfgParquetEnabled) {
-				streamEnrichedInstant.addSink(
-					SdcParquetFileSink.buildSinkGeneric[SdcEnrichedInstant](SdcEnrichedInstant.getSchema(),
-						cfgParquetInstantPath, cfgParquetPrefix, cfgParquetSuffixFormat))
-						.setParallelism(cfgParquetParallelism)
-						.uid(OperatorId.SINK_PARQUET_INSTANT)
-						.name("S3 - Instant")
-
-				streamEnrichedHistorical.addSink(
-					SdcParquetFileSink.buildSinkGeneric[SdcEnrichedHistorical](SdcEnrichedHistorical.getSchema(),
-						cfgParquetHistoricalPath, cfgParquetPrefix, cfgParquetSuffixFormat))
-						.setParallelism(cfgParquetParallelism)
-						.uid(OperatorId.SINK_PARQUET_HISTORICAL)
-						.name("S3 - Historical")
-
-				streamDslamMetadataInstant.union(streamDslamMetadataHistorical).addSink(
-					SdcParquetFileSink.buildSinkGeneric[DslamMetadata](DslamMetadata.getSchema(),
-						cfgParquetMetadataPath, cfgParquetPrefix, cfgParquetSuffixFormat))
-						.setParallelism(1)
-						.uid(OperatorId.SINK_PARQUET_METADATA)
-						.name("S3 - Metadata")
-			}
+//			if (cfgParquetEnabled) {
+//				streamEnrichedInstant.addSink(
+//					SdcParquetFileSink.buildSinkGeneric[SdcEnrichedInstant](SdcEnrichedInstant.getSchema(),
+//						cfgParquetInstantPath, cfgParquetPrefix, cfgParquetSuffixFormat))
+//						.setParallelism(cfgParquetParallelism)
+//						.uid(OperatorId.SINK_PARQUET_INSTANT)
+//						.name("S3 - Instant")
+//
+//				streamEnrichedHistorical.addSink(
+//					SdcParquetFileSink.buildSinkGeneric[SdcEnrichedHistorical](SdcEnrichedHistorical.getSchema(),
+//						cfgParquetHistoricalPath, cfgParquetPrefix, cfgParquetSuffixFormat))
+//						.setParallelism(cfgParquetParallelism)
+//						.uid(OperatorId.SINK_PARQUET_HISTORICAL)
+//						.name("S3 - Historical")
+//
+//				streamDslamMetadataInstant.union(streamDslamMetadataHistorical).addSink(
+//					SdcParquetFileSink.buildSinkGeneric[DslamMetadata](DslamMetadata.getSchema(),
+//						cfgParquetMetadataPath, cfgParquetPrefix, cfgParquetSuffixFormat))
+//						.setParallelism(1)
+//						.uid(OperatorId.SINK_PARQUET_METADATA)
+//						.name("S3 - Metadata")
+//			}
 
 			if (cfgElasticSearchStatsEnabled) {
 				streamDslamMetadataInstant.union(streamDslamMetadataHistorical)

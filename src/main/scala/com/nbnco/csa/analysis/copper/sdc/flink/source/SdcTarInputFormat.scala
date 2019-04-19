@@ -100,18 +100,8 @@ class SdcTarInputFormat(filePath: Path, isComposit: Boolean, metricsPrefix: Stri
 		if (!(headers_1("Time stamp").equals(headers_2("Time stamp")) && headers_1("NE Name").equals(headers_2("NE Name"))))
 			throw InvalidDataException(s"Tar file with unmatching member files: ${headers_1("Time stamp")}, ${headers_1("NE Name")}")
 
-		def mergeData (modTime: Long, h1: Map[String, String], r1: Map[String, String], h2: Map[String, String], r2: Map[String, String]): (Long, Map[String, String], Map[String, String]) = {
-			r2.keySet.diff(r1.keySet).foreach({
-				p => SdcTarInputFormat.LOG.warn(s"Port $p of ${h1("NE Name")} has MAC but no other data: ")
-			})
-			(modTime, h1 + ("Columns" -> s"${h1("Columns")},${h2("Columns")}"),
-					r1.map(a => a._1 -> (a._2 + "," + r2.getOrElse(a._1, ""))))
-		}
-
-		if (headers_1("Object Type").equals("XDSL Port"))
-			mergeData(modTime, headers_1, records_1, headers_2, records_2)
-		else
-			mergeData(modTime, headers_2, records_2, headers_1, records_1)
+		val (h, r) = MergeCsv(headers_1("Columns"), records_1, headers_2("Columns"), records_2)
+		(modTime, headers_1 + ("Columns" -> h), r)
 	}
 
 	@throws[IOException]
@@ -151,7 +141,7 @@ class SdcTarInputFormat(filePath: Path, isComposit: Boolean, metricsPrefix: Stri
 
 			DslamRaw(
 				DslamMetadata(isComposit, headers("NE Name"), metricsTime, headers("Columns"), fileName.getPath.split(filePath.getPath)(1), fileModTime, processingTime, tarComponentFileTime, records.size),
-				records.toSeq)
+				records)
 		} finally {
 			tarStream.close()
 		}

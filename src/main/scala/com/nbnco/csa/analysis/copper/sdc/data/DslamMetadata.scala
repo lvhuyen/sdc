@@ -39,6 +39,7 @@ case class DslamMetadata (isInstant: Boolean,
 }
 
 object DslamMetadata {
+	def apply() = new DslamMetadata(false, "", 0, "", "", 0, 0, 0, 0)
 	def toMap(dslam: DslamMetadata): Map[String, Any] = {
 		Map (
 			"isInstant" -> dslam.isInstant,
