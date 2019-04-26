@@ -29,7 +29,7 @@ object SdcCompact {
         this(raw.ts,
             raw.dslam,
             raw.port,
-            raw.enrich.avcId,
+            raw.enrich.s1,
             raw.dataH.lprFe.toShort,
             raw.dataH.reInit.toShort,
             raw.dataH.uas.toShort,

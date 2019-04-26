@@ -14,16 +14,16 @@ package com.nbnco.csa.analysis.copper.sdc.data
   * @param reTransDs    xdslChannelPreviousIntervalRetransmDtuCounterDS
   *                     Drop-out = reInit - LPR
   */
-case class SdcDataHistorical(var ses: JShort,
-                             var uas: JShort,
-                             var lprFe: JShort,
-                             var sesFe: JShort,
-							 var reInit: JShort,
-                             var unCorrDtuDs: JLong,
-                             var unCorrDtuUs: JLong,
-                             var reTransUs : JLong,
-                             var reTransDs: JLong
-                            ) extends SdcDataBase {
+case class SdcDataHistorical(ses: JShort,
+                             uas: JShort,
+                             lprFe: JShort,
+                             sesFe: JShort,
+							 reInit: JShort,
+                             unCorrDtuDs: JLong,
+                             unCorrDtuUs: JLong,
+                             reTransUs : JLong,
+                             reTransDs: JLong
+                            ) {
 	def toMap: Map[String, Any] = {
 		Map (
 			"xdslLinePreviousIntervalSESCounter" -> ses,
@@ -39,12 +39,7 @@ case class SdcDataHistorical(var ses: JShort,
 	}
 }
 object SdcDataHistorical {
-	val EMPTY = SdcDataHistorical(null, null, null, null, null, null, null, null, null)
-//	val EMPTY = SdcDataHistorical(java.lang.Short.MIN_VALUE,java.lang.Short.MIN_VALUE,java.lang.Short.MIN_VALUE,java.lang.Short.MIN_VALUE,java.lang.Short.MIN_VALUE, -1L, -1L, -1L, -1L)
+//	val EMPTY = SdcDataHistorical(null, null, null, null, null, null, null, null, null)
+	val EMPTY = SdcDataHistorical(-1: Short, -1: Short, -1: Short, -1: Short, -1: Short, -1L, -1L, -1L, -1L)
 	def apply(): SdcDataHistorical = EMPTY
-
-//	def parse(raw: String, ref: Array[Int]): SdcDataBase = {
-//		val v = raw.split(",")
-//		SdcDataHistorical(v(ref(0)), v(ref(1)), v(ref(2)).toInt, v(ref(3)).toInt, v(ref(4)).toInt, v(ref(5)).toInt, v(ref(6)), v.lift(ref(7)).getOrElse(""))
-//	}
 }

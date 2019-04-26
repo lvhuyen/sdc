@@ -3,15 +3,15 @@ package com.nbnco.csa.analysis.copper.sdc.data
 /**
   * Created by Huyen on 30/9/18.
   */
-case class SdcDataInstant(var ifAdminStatus: JBool,
-                          var ifOperStatus: JBool,
-                          var actualDs: Integer,
-                          var actualUs: Integer,
-                          var attndrDs: Integer,
-                          var attndrUs: Integer,
-                          var attenuationDs: JShort,
-                          var userMacAddress: String
-                         ) extends SdcDataBase {
+case class SdcDataInstant(ifAdminStatus: JBool,
+                          ifOperStatus: JBool,
+                          actualDs: Integer,
+                          actualUs: Integer,
+                          attndrDs: Integer,
+                          attndrUs: Integer,
+                          attenuationDs: JShort,
+                          userMacAddress: String
+                         ) {
     def toMap: Map[String, Any] = {
         Map (
             "ifAdminStatus" -> ifAdminStatus,
@@ -27,6 +27,6 @@ case class SdcDataInstant(var ifAdminStatus: JBool,
 }
 
 object SdcDataInstant {
-    val EMPTY = SdcDataInstant(false, false, null, null, null, null, null, null)
+    val EMPTY = SdcDataInstant(false, false, -1, -1, -1, -1, -1: Short, "")
     def apply(): SdcDataInstant = EMPTY
 }

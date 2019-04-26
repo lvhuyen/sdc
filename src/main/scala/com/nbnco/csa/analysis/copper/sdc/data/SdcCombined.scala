@@ -1,6 +1,5 @@
 package com.nbnco.csa.analysis.copper.sdc.data
 
-import com.nbnco.csa.analysis.copper.sdc.utils.InvalidDataException
 import org.apache.avro.Schema
 import org.apache.avro.generic.IndexedRecord
 import org.apache.flink.api.common.typeinfo.TypeInformation
@@ -14,7 +13,7 @@ import org.apache.flink.api.common.typeinfo.TypeInformation
 case class SdcCombined(ts: Long, dslam: String, port: String,
                        dataI: SdcDataInstant,
                        dataH: SdcDataHistorical,
-                       enrich: SdcDataEnrichment
+                       enrich: MyClass
                 ) extends IndexedRecord with CopperLine {
 
     override def toMap: Map[String, Any] = {
@@ -51,11 +50,11 @@ case class SdcCombined(ts: Long, dslam: String, port: String,
             case 17 => dataH.unCorrDtuUs
             case 18 => dataH.reTransUs
             case 19 => dataH.reTransDs
-            case 20 => enrich.tsEnrich.asInstanceOf[AnyRef]
-            case 21 => enrich.avcId
-            case 22 => enrich.cpi
-            case 23 => enrich.corrAttndrDs
-            case 24 => enrich.corrAttndrUs
+            case 20 => enrich.ts.asInstanceOf[AnyRef]
+            case 21 => enrich.s1
+            case 22 => enrich.s2
+            case 23 => enrich.i1
+            case 24 => enrich.i2
         }
     }
 
@@ -71,7 +70,7 @@ case class SdcCombined(ts: Long, dslam: String, port: String,
 object SdcCombined {
 	implicit val typeInfo = TypeInformation.of(classOf[SdcCombined])
 
-	val EMPTY = SdcCombined(0, "", "", SdcDataInstant.EMPTY, SdcDataHistorical.EMPTY, SdcDataEnrichment.EMPTY)
+	val EMPTY = SdcCombined(0, "", "", SdcDataInstant.EMPTY, SdcDataHistorical.EMPTY, MyClass.EMPTY)
 
 	def apply(): SdcCombined = EMPTY
 
@@ -103,11 +102,11 @@ object SdcCombined {
 				v(ref(16)).toLong
 			) else SdcDataHistorical.EMPTY
 
-		new SdcCombined(ts, dslam, port, i, h, SdcDataEnrichment.EMPTY)
+		new SdcCombined(ts, dslam, port, i, h, MyClass.EMPTY)
 	}
 
 	def apply(raw: SdcCombined, enrich: EnrichmentData, correctedAttndrDS: Int, correctedAttndrUS: Int): SdcCombined =
-		raw.copy(enrich = SdcDataEnrichment(System.currentTimeMillis(),
+		raw.copy(enrich = MyClass(System.currentTimeMillis(),
 			enrich.getOrElse(EnrichmentAttributeName.AVC, null).asInstanceOf[String],
 			enrich.getOrElse(EnrichmentAttributeName.CPI, null).asInstanceOf[String],
 			correctedAttndrDS, correctedAttndrUS)
