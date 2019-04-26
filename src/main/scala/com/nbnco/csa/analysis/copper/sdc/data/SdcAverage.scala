@@ -7,12 +7,12 @@ import org.json4s.jackson.Serialization.write
   * Created by Huyen on 11/7/18.
   */
 case class SdcAverage(ts: Long, dslam: String, port: String,
-					  enrich: MyClass,
+					  enrich: SdcDataEnrichment,
 					  average_ds: Int, average_us: Int,
 					  measurements_count: Long
                 ) extends SdcEnrichedBase {
 
-	def this() = this(0L, "", "", MyClass(), -1, -1, 0L)
+	def this() = this(0L, "", "", SdcDataEnrichment(), -1, -1, 0L)
 //	override def toString =
 //        s"$dslam,$port,${avc_id.getOrElse(dslam + ":" + port)},${cpi.getOrElse("N/A")},$data_time,$if_admin_status,$if_oper_status,$actual_ds,$actual_us,$attndr_ds,$attndr_us,${attenuation_ds},${user_mac_address.getOrElse("")},$measurements_count,$average_ds,$average_us"
 

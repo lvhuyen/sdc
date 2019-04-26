@@ -252,7 +252,7 @@ object ReadAndCombineRawSdcFiles {
 		}
 
 		override def process(key: String, context: Context, elements: Iterable[DslamRaw[FileInputSplit]], out: Collector[DslamRaw[Map[String, String]]]): Unit = {
-//			Thread.sleep(5000)
+			Thread.sleep(5000)
 
 			(parseToPort(elements.find(_.dslamType == DslamType.DSLAM_INSTANT)),
 					parseToPort(elements.find(_.dslamType == DslamType.DSLAM_HISTORICAL))) match {

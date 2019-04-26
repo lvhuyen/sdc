@@ -9,7 +9,7 @@ case class SdcDataInstant(ifAdminStatus: JBool,
                           actualUs: Integer,
                           attndrDs: Integer,
                           attndrUs: Integer,
-                          attenuationDs: JShort,
+                          attenuationDs: Option[Short],
                           userMacAddress: String
                          ) {
     def toMap: Map[String, Any] = {
@@ -20,13 +20,13 @@ case class SdcDataInstant(ifAdminStatus: JBool,
             "xdslChannelActualNetDataRateUpstream" -> actualUs,
             "xdslFarEndChannelAttainableNetDataRateDownstream" -> attndrDs,
             "xdslChannelAttainableNetDataRateUpstream" -> attndrUs,
-            "xdslFarEndLineLoopAttenuationDownstream" -> (if (attenuationDs == null) null else attenuationDs / 10.0f),
+            "xdslFarEndLineLoopAttenuationDownstream" -> attenuationDs.map(_/10.0f: JFloat).orNull,
             "macaddress" -> userMacAddress
         )
     }
 }
 
 object SdcDataInstant {
-    val EMPTY = SdcDataInstant(false, false, -1, -1, -1, -1, -1: Short, "")
+    val EMPTY = SdcDataInstant(false, false, -1, -1, -1, -1, None, null)
     def apply(): SdcDataInstant = EMPTY
 }

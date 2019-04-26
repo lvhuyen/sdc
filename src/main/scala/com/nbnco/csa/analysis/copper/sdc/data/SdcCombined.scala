@@ -4,6 +4,8 @@ import org.apache.avro.Schema
 import org.apache.avro.generic.IndexedRecord
 import org.apache.flink.api.common.typeinfo.TypeInformation
 
+import scala.util.{Failure, Success, Try}
+
 /**
   * Created by Huyen on 17/8/18.
   */
@@ -12,16 +14,16 @@ import org.apache.flink.api.common.typeinfo.TypeInformation
   */
 case class SdcCombined(ts: Long, dslam: String, port: String,
                        dataI: SdcDataInstant,
-                       dataH: SdcDataHistorical,
-                       enrich: MyClass
+                       dataH: Option[SdcDataHistorical],
+                       enrich: Option[SdcDataEnrichment]
                 ) extends IndexedRecord with CopperLine {
 
     override def toMap: Map[String, Any] = {
-        Map (
+		Map (
             "dslam" -> dslam,
             "port" -> port,
             "metrics_timestamp" -> ts
-        ) ++ dataI.toMap ++ dataH.toMap ++ enrich.toMap
+        ) ++ dataI.toMap ++ dataH.map(_.toMap).getOrElse(Map.empty) ++ enrich.map(_.toMap).getOrElse(Map.empty)
     }
 
     override def getSchema: Schema = {
@@ -39,45 +41,41 @@ case class SdcCombined(ts: Long, dslam: String, port: String,
             case 6 => dataI.actualUs
             case 7 => dataI.attndrDs
             case 8 => dataI.attndrUs
-            case 9 => if (dataI.attenuationDs == null) null else (dataI.attenuationDs / 10.0f).asInstanceOf[AnyRef]
+            case 9 => dataI.attenuationDs.map(_/10.0f: JFloat).orNull
             case 10 => dataI.userMacAddress
-            case 11 => dataH.ses
-            case 12 => dataH.uas
-            case 13 => dataH.lprFe
-            case 14 => dataH.sesFe
-			case 15 => dataH.reInit
-            case 16 => dataH.unCorrDtuDs
-            case 17 => dataH.unCorrDtuUs
-            case 18 => dataH.reTransUs
-            case 19 => dataH.reTransDs
-            case 20 => enrich.ts.asInstanceOf[AnyRef]
-            case 21 => enrich.s1
-            case 22 => enrich.s2
-            case 23 => enrich.i1
-            case 24 => enrich.i2
+            case 11 => dataH.map(_.ses).orNull
+            case 12 => dataH.map(_.uas).orNull
+            case 13 => dataH.map(_.lprFe).orNull
+            case 14 => dataH.map(_.sesFe).orNull
+			case 15 => dataH.map(_.reInit).orNull
+            case 16 => dataH.map(_.unCorrDtuDs).orNull
+            case 17 => dataH.map(_.unCorrDtuUs).orNull
+            case 18 => dataH.map(_.reTransUs).orNull
+            case 19 => dataH.map(_.reTransDs).orNull
+            case 20 => enrich.map(_.ts.asInstanceOf[AnyRef]).orNull
+            case 21 => enrich.map(_.avc).orNull
+            case 22 => enrich.map(_.cpi).orNull
+            case 23 => enrich.map(_.corrAttndrDs).orNull
+            case 24 => enrich.map(_.corrAttndrUs).orNull
         }
     }
 
     override def put(i: Int, o: scala.Any): Unit = {
         throw new Exception("This class is for output only")
     }
-
-//    override def enrich(enrich: EnrichmentData): SdcEnrichedBase = {
-//        this
-//    }
 }
 
 object SdcCombined {
 	implicit val typeInfo = TypeInformation.of(classOf[SdcCombined])
 
-	val EMPTY = SdcCombined(0, "", "", SdcDataInstant.EMPTY, SdcDataHistorical.EMPTY, MyClass.EMPTY)
+	val EMPTY = SdcCombined(0, "", "", SdcDataInstant.EMPTY, None, None)
 
 	def apply(): SdcCombined = EMPTY
 
 	def apply(ts: Long, dslam: String, port: String, raw: String, ref: Array[Int]): SdcCombined = {
 		val v = raw.split(",", -1)
 
-		val i = if (v(ref(0)) != "" || v(ref(1)) != "")
+		val i = if (v(ref(0)) != "")
 			SdcDataInstant(
 				v(ref(0)).equals("up"),
 				v(ref(1)).equals("up"),
@@ -85,12 +83,11 @@ object SdcCombined {
 				v(ref(3)).toInt,
 				v(ref(4)).toInt,
 				v(ref(5)).toInt,
-				if (v(ref(6)).equals("")) -1: Short else v(ref(6)).toShort,
+				Try(v(ref(6)).toShort).toOption,
 				v(ref(7))
 			) else SdcDataInstant.EMPTY
 
-		val h = if (v(ref(8)) != "")
-			SdcDataHistorical(
+		val h = Try(SdcDataHistorical(
 				v(ref(8)).toShort,
 				v(ref(9)).toShort,
 				v(ref(10)).toShort,
@@ -100,17 +97,16 @@ object SdcCombined {
 				v(ref(14)).toLong,
 				v(ref(15)).toLong,
 				v(ref(16)).toLong
-			) else SdcDataHistorical.EMPTY
+			)).toOption
 
-		new SdcCombined(ts, dslam, port, i, h, MyClass.EMPTY)
+		new SdcCombined(ts, dslam, port, i, h, None)
 	}
 
 	def apply(raw: SdcCombined, enrich: EnrichmentData, correctedAttndrDS: Int, correctedAttndrUS: Int): SdcCombined =
-		raw.copy(enrich = MyClass(System.currentTimeMillis(),
+		raw.copy(enrich = Some(SdcDataEnrichment(System.currentTimeMillis(),
 			enrich.getOrElse(EnrichmentAttributeName.AVC, null).asInstanceOf[String],
 			enrich.getOrElse(EnrichmentAttributeName.CPI, null).asInstanceOf[String],
-			correctedAttndrDS, correctedAttndrUS)
-		)
+			correctedAttndrDS, correctedAttndrUS)))
 
 	val REF_COLUMNS_NAME: Array[String] = Array(
 		"ifAdminStatus",
