@@ -1,13 +1,13 @@
 package com.nbnco.csa.analysis.copper.sdc.flink.operator
 
 import scala.util.parsing.json.JSON
-import com.nbnco.csa.analysis.copper.sdc.data.JavaFloat
+import com.nbnco.csa.analysis.copper.sdc.data.JFloat
 import org.apache.flink.api.common.functions.FlatMapFunction
 import org.apache.flink.util.Collector
 import org.slf4j.LoggerFactory
 
-class ParsePercentilesRecord extends FlatMapFunction[String, (String, List[JavaFloat])] {
-	override def flatMap(t: String, collector: Collector[(String, List[JavaFloat])]): Unit = {
+class ParsePercentilesRecord extends FlatMapFunction[String, (String, List[JFloat])] {
+	override def flatMap(t: String, collector: Collector[(String, List[JFloat])]): Unit = {
 		JSON.parseFull(t) match {
 			case Some(r: Map[String, Any] @unchecked) =>
 				r.get("Percentiles") match {

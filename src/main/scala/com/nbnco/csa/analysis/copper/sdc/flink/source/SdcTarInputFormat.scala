@@ -4,7 +4,8 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 import com.codahale.metrics.SlidingTimeWindowReservoir
-import com.nbnco.csa.analysis.copper.sdc.data.{DslamMetadata, DslamRaw, PORT_PATTERN_UNKNOWN}
+import com.nbnco.csa.analysis.copper.sdc.data.DslamType._
+import com.nbnco.csa.analysis.copper.sdc.data.{DslamMetadata, DslamRaw, PortFormatConverter, mergeCsv}
 import com.nbnco.csa.analysis.copper.sdc.utils.InvalidDataException
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.flink.api.common.io.{CheckpointableInputFormat, FileInputFormat}
@@ -15,6 +16,9 @@ import org.apache.flink.streaming.api.functions.source.TimestampedFileInputSplit
 import org.apache.flink.util.Preconditions
 import org.slf4j.{Logger, LoggerFactory}
 
+import scala.annotation.tailrec
+import scala.util.{Failure, Success}
+
 /**
   * Created by Huyen on 8/8/18.
   */
@@ -24,7 +28,9 @@ object SdcTarInputFormat {
 	val FILE_MOD_TIME_UNKNOWN = Long.MinValue
 }
 
-class SdcTarInputFormat(filePath: Path, isComposit: Boolean, metricsPrefix: String) extends FileInputFormat[DslamRaw[String]] (filePath)  with CheckpointableInputFormat[FileInputSplit, Integer]{
+class SdcTarInputFormat(filePath: Path, metricsPrefix: String, truncatePathWhileLoggingUpToLevel: Int = 0)
+		extends FileInputFormat[DslamRaw[Map[String,String]]] (filePath)
+				with CheckpointableInputFormat[FileInputSplit, Integer] {
 
 	lazy val FILES_COUNT: Counter = getRuntimeContext.getMetricGroup.addGroup("Chronos-SDC").counter(s"$metricsPrefix-Files-Count")
 	lazy val BAD_FILES_COUNT: Counter = getRuntimeContext.getMetricGroup.addGroup("Chronos-SDC").counter(s"$metricsPrefix-Bad-Files-Count")
@@ -52,7 +58,7 @@ class SdcTarInputFormat(filePath: Path, isComposit: Boolean, metricsPrefix: Stri
 	protected var fileModTime: Long = _
 
 	private var knownHeaders: Set[String] = Set()
-	private var portPatternId = PORT_PATTERN_UNKNOWN
+//	private var portPatternId = PORT_PATTERN_UNKNOWN
 
 	private val METRICS_DATE_FORMAT = new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'")
 	METRICS_DATE_FORMAT.setTimeZone(java.util.TimeZone.getTimeZone("UTC"))
@@ -65,14 +71,15 @@ class SdcTarInputFormat(filePath: Path, isComposit: Boolean, metricsPrefix: Stri
 	  * The function returns a tuple of two String if the header is valid, and returns null if invalid
 	  * *
 	  *
-	  * @return Returns a tuple3, with:
+	  * @return Returns one FileOutput - a tuple4, with:
 		*         first element is the last Modified Date of the inner file
 		*         second element is the headers (a map from header name to header value)
-		*         third element is the records (a map from port to data)
+	  	*         third element is the records (a map from port to data)
+	  	*         fourth element is the number of file read (always 1 in this case)
 	  */
+	type FileOutput = (Long, Map[String, String], Map[String, String], Int)
 	@throws[IOException]
-	private def readMemberTextFile(tarStream: TarArchiveInputStream): (Long, Map[String, String], Map[String, String]) = {
-		val curEntry = tarStream.getNextTarEntry
+	private def readTarEntryFromStream(tarStream: TarArchiveInputStream): FileOutput = {
 		val lines = scala.io.Source.fromInputStream(tarStream).getLines
 		val (first_half, second_half) = lines.span(!_.startsWith("Object ID"))
 
@@ -80,42 +87,49 @@ class SdcTarInputFormat(filePath: Path, isComposit: Boolean, metricsPrefix: Stri
 				.map(_.span(_ != ',')) ++ Iterator(("Columns", second_half.next.dropWhile(_ != ',')))
 		val headers = tmp_h.toMap[String, String].mapValues(_.drop(1))
 
-		val tmp_r = second_half.map(_.span(_ != ','))
-		val records = (
-				if (headers("Object Type").equalsIgnoreCase("Current MAC Address"))
-					tmp_r.map(kvp => (kvp._1.split(".ITF")(0), kvp._2))
-				else tmp_r
-				).toMap[String, String]
-				.mapValues(_.drop(1))
-		(curEntry.getLastModifiedDate.getTime, headers, records)
+		val tmp_r = second_half.map(_.span(_ != ',')).toMap[String, String]
+		PortFormatConverter.convertPortAndManipulateValue[String](tmp_r, _.drop(1)) match {
+			case Success(records) =>
+				(tarStream.getCurrentEntry.getLastModifiedDate.getTime, headers, records, 1)
+			case Failure(exception) =>
+				throw exception
+		}
 	}
 
 	@throws[IOException]
-	private def readCompositTarFile(tarStream: TarArchiveInputStream): (Long, Map[String, String], Map[String, String]) = {
-		val (modTime1, headers_1, records_1) = readMemberTextFile(tarStream)
-		val (modTime2, headers_2, records_2) = readMemberTextFile(tarStream)
-
-		val modTime = Math.max(modTime1, modTime2)
-
-		if (!(headers_1("Time stamp").equals(headers_2("Time stamp")) && headers_1("NE Name").equals(headers_2("NE Name"))))
-			throw InvalidDataException(s"Tar file with unmatching member files: ${headers_1("Time stamp")}, ${headers_1("NE Name")}")
-
-		val (h, r) = MergeCsv(headers_1("Columns"), records_1, headers_2("Columns"), records_2)
-		(modTime, headers_1 + ("Columns" -> h), r)
+	@tailrec
+	private def readCompositTarFile(tarStream: TarArchiveInputStream, accumulator: FileOutput): FileOutput = {
+		if (tarStream.getNextTarEntry == null)
+			accumulator
+		else {
+			val curOutput = readTarEntryFromStream(tarStream)
+			val newAccumulator =
+				if (accumulator._4 == 0)
+					curOutput
+				else {
+					if (!(accumulator._2("Time stamp").equals(curOutput._2("Time stamp")) &&
+							accumulator._2("NE Name").equals(curOutput._2("NE Name"))))
+						throw InvalidDataException(s"Tar file with unmatched member files: ${curOutput._2("Time stamp")}, ${curOutput._3("NE Name")}")
+					(
+							Math.max(accumulator._1, curOutput._1),
+							accumulator._2 + ("Columns" -> s"${accumulator._2("Columns")},${curOutput._2("Columns")}"),
+							mergeCsv(accumulator._2("Columns"), accumulator._3, curOutput._2("Columns"), curOutput._3),
+							accumulator._4 + 1
+					)
+				}
+			readCompositTarFile(tarStream, newAccumulator)
+		}
 	}
 
 	@throws[IOException]
-	private def prepareData(): DslamRaw[String] = {
+	private def prepareData(): DslamRaw[Map[String, String]] = {
 		val tarStream = new TarArchiveInputStream(this.stream)
 		try {
-			this.portPatternId = PORT_PATTERN_UNKNOWN
+//			this.portPatternId = PORT_PATTERN_UNKNOWN
 			val processingTime = new java.util.Date().getTime
 
-			val (tarComponentFileTime, headers, records) =
-				if (isComposit)
-					readCompositTarFile(tarStream)
-				else
-					readMemberTextFile(tarStream)
+			val (tarComponentFileTime, headers, records, fileCount) =
+					readCompositTarFile(tarStream, (0, Map.empty, Map.empty, 0))
 
 			// Track the list of known columns headers order:
 			if (!knownHeaders.contains(headers("Columns"))) {
@@ -139,33 +153,28 @@ class SdcTarInputFormat(filePath: Path, isComposit: Boolean, metricsPrefix: Stri
 				this.DELAY_METER.markEvent((this.fileModTime - metricsTime) / 1000)
 			}
 
-			DslamRaw(
-				DslamMetadata(isComposit, headers("NE Name"), metricsTime, headers("Columns"), fileName.getPath.split(filePath.getPath)(1), fileModTime, processingTime, tarComponentFileTime, records.size),
-				records)
+//			DslamRaw(metricsTime, headers("NE Name"), if (fileCount == 1) DSLAM_HISTORICAL else DSLAM_INSTANT, records,
+//				DslamMetadata(headers("Columns"), fileName.getPath.split(filePath.getPath)(1), fileModTime, processingTime, tarComponentFileTime, records.size))
+			DslamRaw(metricsTime, headers("NE Name"), if (fileCount == 1) DSLAM_HISTORICAL else DSLAM_INSTANT, records,
+				DslamMetadata(headers("Columns"), fileName.getPath.split("/", truncatePathWhileLoggingUpToLevel + 2).last, fileModTime, processingTime, tarComponentFileTime, records.size))
 		} finally {
 			tarStream.close()
 		}
 	}
 
-	private var charsetName = "UTF-8"
-	def getCharsetName: String = charsetName
-	def setCharsetName(charsetName: String): Unit = {
-		if (charsetName == null) throw new IllegalArgumentException("Charset must not be null.")
-		this.charsetName = charsetName
-	}
 
-	@throws[IOException]
-	override def nextRecord(record: DslamRaw[String]): DslamRaw[String] = {
-		this.end = true
+	override def nextRecord(record: DslamRaw[Map[String,String]]): DslamRaw[Map[String,String]] = {
 		try {
 			prepareData()
 		} catch {
-			case e: Throwable =>
+			case e: Exception =>
 				this.BAD_FILES_COUNT.inc()
-				SdcTarInputFormat.LOG.warn(s"Error reading file: ${this.fileName.getPath}. Reason: ${e.getMessage}")
+				SdcTarInputFormat.LOG.warn(s"Error reading file: ${this.fileName.getPath}. Reason: ${e.getLocalizedMessage}")
 				SdcTarInputFormat.LOG.info(s"Stacktrace: {}", e.getStackTrace)
 				if (SdcTarInputFormat.LOG.isDebugEnabled) throw e
 				null
+		} finally {
+			this.end = true
 		}
 	}
 

@@ -146,6 +146,7 @@ object TestES {
 			val path = "file:///Users/Huyen/Desktop/SDCTest/input/es"
 		val streamInput = streamEnv.readFile(new TextInputFormat(new Path(path)), path, FileProcessingMode.PROCESS_CONTINUOUSLY, 1000)
         		.filter(_.startsWith("AVC"))
+        		.map((_, true))
 
 
 		val serverUrl = "vpc-csa-chronos-analytics-prod-r3g6gdlvwljkufo3i5mv4mbw74.ap-souatheast-2.es.amazonaws.com"
@@ -154,18 +155,13 @@ object TestES {
 		val cnt = 2
 		val timeout = 3
 
-		val streamEsSearchResponse = AsyncDataStream.unorderedWait(streamInput.map((_, true)),
-			new ReadHistoricalDataFromES(serverUrl, indexName, docType, cnt, timeout), timeout + 10, TimeUnit.SECONDS, 100)
-
-		val tagToggle = OutputTag[((String, String), Boolean)]("NoSyncTogglePhysicalRef")
-		val tagRetry = OutputTag[(String, Boolean)]("NoSyncToggleRetry")
-
-		val streamEsData = streamEsSearchResponse.process(new ParseEsQueryResult(tagToggle, tagRetry))
+		val (streamEsData, streamNosyncToggle, streamNosyncRetry) =
+			ReadHistoricalDataFromES.readAndParse(streamInput, serverUrl, indexName, docType, cnt, timeout)
 
 		streamInput.print()
 		streamEsData.print()
-		streamEsData.getSideOutput(tagToggle).print()
-		streamEsData.getSideOutput(tagRetry).print()
+		streamNosyncToggle.print()
+		streamNosyncRetry.print()
 
 		// execute program
 		streamEnv.execute("Chronos SDC")

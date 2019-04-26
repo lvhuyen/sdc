@@ -3,29 +3,30 @@ package com.nbnco.csa.analysis.copper.sdc.data
 /**
   * Created by Huyen on 30/9/18.
   */
-case class SdcDataInstant(var if_admin_status: String,
-                          var if_oper_status: String,
-                          var actual_ds: Int,
-                          var actual_us: Int,
-                          var attndr_ds: Int,
-                          var attndr_us: Int,
-                          var attenuation_ds: Integer,
-                          var user_mac_address: String
+case class SdcDataInstant(var ifAdminStatus: JBool,
+                          var ifOperStatus: JBool,
+                          var actualDs: Integer,
+                          var actualUs: Integer,
+                          var attndrDs: Integer,
+                          var attndrUs: Integer,
+                          var attenuationDs: JShort,
+                          var userMacAddress: String
                          ) extends SdcDataBase {
     def toMap: Map[String, Any] = {
         Map (
-            "ifAdminStatus" -> if_admin_status,
-            "ifOperStatus" -> if_oper_status,
-            "xdslFarEndChannelActualNetDataRateDownstream" -> actual_ds,
-            "xdslChannelActualNetDataRateUpstream" -> actual_us,
-            "xdslFarEndChannelAttainableNetDataRateDownstream" -> attndr_ds,
-            "xdslChannelAttainableNetDataRateUpstream" -> attndr_us,
-            "xdslFarEndLineLoopAttenuationDownstream" -> (if (attenuation_ds == null) null else attenuation_ds / 10.0f),
-            "macaddress" -> user_mac_address
+            "ifAdminStatus" -> ifAdminStatus,
+            "ifOperStatus" -> ifOperStatus,
+            "xdslFarEndChannelActualNetDataRateDownstream" -> actualDs,
+            "xdslChannelActualNetDataRateUpstream" -> actualUs,
+            "xdslFarEndChannelAttainableNetDataRateDownstream" -> attndrDs,
+            "xdslChannelAttainableNetDataRateUpstream" -> attndrUs,
+            "xdslFarEndLineLoopAttenuationDownstream" -> (if (attenuationDs == null) null else attenuationDs / 10.0f),
+            "macaddress" -> userMacAddress
         )
     }
 }
 
 object SdcDataInstant {
-    def apply(): SdcDataInstant = SdcDataInstant("down", "down", -1, -1, -1, -1, -1, null)
+    val EMPTY = SdcDataInstant(false, false, null, null, null, null, null, null)
+    def apply(): SdcDataInstant = EMPTY
 }

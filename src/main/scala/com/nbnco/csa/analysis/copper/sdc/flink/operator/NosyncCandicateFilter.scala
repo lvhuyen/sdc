@@ -2,7 +2,6 @@ package com.nbnco.csa.analysis.copper.sdc.flink.operator
 
 import com.nbnco.csa.analysis.copper.sdc.data._
 import org.apache.flink.api.common.state.ValueStateDescriptor
-import org.apache.flink.configuration.Configuration
 import org.apache.flink.streaming.api.functions.co.RichCoFlatMapFunction
 import org.apache.flink.util.Collector
 
@@ -11,7 +10,8 @@ import org.apache.flink.util.Collector
   */
 
 /**
-  * This RichCoFlatMapFunction is used to enrich a SdcRaw object with AVC_ID and CPI
+  * This function filters the 1st input stream SdcCombined using data from 2nd stream ((dslam, port), flag)
+  * The output is a stream of SdcCompact (a trimmed version of SdcCombined to save memory space)
   */
 class NosyncCandicateFilter extends RichCoFlatMapFunction[SdcCombined, ((String, String), Boolean), SdcCompact] {
 	val candidateStateDescriptor = new ValueStateDescriptor[Boolean]("NoSyncEnabled", classOf[Boolean])
@@ -23,6 +23,6 @@ class NosyncCandicateFilter extends RichCoFlatMapFunction[SdcCombined, ((String,
 	}
 
 	override def flatMap2(in2: ((String, String), Boolean), collector: Collector[SdcCompact]): Unit = {
-		val cachedState = getRuntimeContext.getState(candidateStateDescriptor).update(in2._2)
+		getRuntimeContext.getState(candidateStateDescriptor).update(in2._2)
 	}
 }

@@ -16,8 +16,8 @@ case class EnrichmentRecord(ts: Long, dslam: String, port: String, data: Enrichm
 			"dslam" -> dslam,
 			"port" -> port,
 			"metrics_timestamp" -> ts,
-			"avc" -> data.getOrElse(AVC, ""),
-			"cpi" -> data.getOrElse(CPI, "")
+			"avc" -> data.get(AVC),
+			"cpi" -> data.get(CPI)
 		)
 	}
 }

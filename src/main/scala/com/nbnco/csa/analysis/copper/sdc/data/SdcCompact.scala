@@ -11,7 +11,7 @@ import com.nbnco.csa.analysis.copper.sdc.flink.operator.ReadHistoricalDataFromES
 
 object SdcCompact {
 
-    def apply(ts: Long, avc: String, source: collection.mutable.Map[String, AnyRef]): SdcCompact = {
+    def apply(ts: JLong, avc: String, source: collection.mutable.Map[String, AnyRef]): SdcCompact = {
         this(ts,
             source.getOrElse(FieldName.DSLAM, "").asInstanceOf[String],
             source.getOrElse(FieldName.PORT, "").asInstanceOf[String],
@@ -33,22 +33,22 @@ object SdcCompact {
             raw.dataH.lprFe.toShort,
             raw.dataH.reInit.toShort,
             raw.dataH.uas.toShort,
-            raw.dataI.attndr_ds,
-            raw.dataI.attndr_us,
-            raw.dataI.if_oper_status.equals("up"))
+            raw.dataI.attndrDs,
+            raw.dataI.attndrUs,
+            raw.dataI.ifOperStatus)
     }
 }
 
-case class SdcCompact(ts: Long,
+case class SdcCompact(ts: JLong,
                       dslam: String,
                       port: String,
                       avc: String,
-                      lpr: Short,
-                      reInit: Short,
-                      uas: Short,
-                      attndrDS: Int,
-                      attndrUS: Int,
-                      ifOperStatus: Boolean) {
+                      lpr: JShort,
+                      reInit: JShort,
+                      uas: JShort,
+                      attndrDS: JInt,
+                      attndrUS: JInt,
+                      ifOperStatus: JBool) {
 
     override def toString() = {
         s"$ts,$dslam,$port,$avc,$lpr,$reInit,$uas,$attndrDS,$attndrUS,$ifOperStatus"

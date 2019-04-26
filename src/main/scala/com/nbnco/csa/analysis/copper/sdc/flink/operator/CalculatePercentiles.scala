@@ -148,7 +148,7 @@ object CalculatePercentiles {
 	  * @param doing_us		: is doing Downstream or Upstream
 	  * @return
 	  */
-	def Choose_Percentile (atten_index: Short, r: Int, max: Int, per: Array[JavaFloat], doing_us: Boolean): Double = {
+	def Choose_Percentile (atten_index: Short, r: Int, max: Int, per: Array[JFloat], doing_us: Boolean): Double = {
 		val d = r
 
 		if (r >= max)
@@ -214,7 +214,7 @@ object CalculatePercentiles {
 	  * @param doing_us		: is doing upstream
 	  * @return				: corrected AttNDR
 	  */
-	def Choose_New_Rate_From_Percentile (per: Array[JavaFloat], atten_index: Short, att_rate: Int, percentile: Double, tier: String, doing_us: Boolean): Int =
+	def Choose_New_Rate_From_Percentile (per: Array[JFloat], atten_index: Short, att_rate: Int, percentile: Double, tier: String, doing_us: Boolean): Int =
 	{
 		// If percentile has not been set, return a null value
 		if (percentile < 0.0) return -1
@@ -267,7 +267,7 @@ object CalculatePercentiles {
 
 	def calculate_corrected_attndr(service_type: TechType.TechType, best_atten_375: Short, max_add_NM: Short,
 								   tier: String, att_ndr: Int, dpbo_profile: Byte,
-								   current_pctls: Array[JavaFloat], expected_pctls: Array[JavaFloat], doing_us: Boolean): Int = {
+								   current_pctls: Array[JFloat], expected_pctls: Array[JFloat], doing_us: Boolean): Int = {
 		if (current_pctls == null || current_pctls.isEmpty || expected_pctls == null || expected_pctls.isEmpty
 			|| (service_type == TechType.FTTN && Seq("100", "40").contains(tier) && max_add_NM >= 30)
 			|| (service_type == TechType.FTTB && Seq("100", "40", "50", "20").contains(tier)))

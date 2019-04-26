@@ -6,29 +6,25 @@ import org.apache.avro.generic.IndexedRecord
 /**
   * Created by Huyen on 19/10/18.
   */
-case class DslamMetadata (isInstant: Boolean,
-													name: String,
-													ts: Long,
-													columns: String,
-													relativePath: String,
-													fileTime: Long,
-													processingTime: Long,
-													componentFileTime: Long,
-													recordsCount: Int)
-	extends IndexedRecord with TemporalEvent {
+case class DslamMetadata (columns: String,
+						  relativePath: String,
+						  fileTime: JLong,
+						  processingTime: JLong,
+						  componentFileTime: JLong,
+						  recordsCount: JInt)
+		extends IndexedRecord {
+
 	override def getSchema: Schema = {
-		DslamMetadata.getSchema()
+		DslamMetadata.getSchema
 	}
+
 	override def get(i: Int): AnyRef = {
 		i match {
-			case 0 => isInstant.asInstanceOf[AnyRef]
-			case 1 => name
-			case 2 => ts.asInstanceOf[AnyRef]
-			case 3 => relativePath
-			case 4 => fileTime.asInstanceOf[AnyRef]
-			case 5 => processingTime.asInstanceOf[AnyRef]
-			case 6 => componentFileTime.asInstanceOf[AnyRef]
-			case 7 => recordsCount.asInstanceOf[AnyRef]
+			case 0 => relativePath
+			case 1 => fileTime
+			case 2 => processingTime
+			case 3 => componentFileTime
+			case 4 => recordsCount
 		}
 	}
 
@@ -39,12 +35,17 @@ case class DslamMetadata (isInstant: Boolean,
 }
 
 object DslamMetadata {
-	def apply() = new DslamMetadata(false, "", 0, "", "", 0, 0, 0, 0)
+	val EMPTY = new DslamMetadata("", "", 0L, 0L, 0L, 0)
+
+	def apply(): DslamMetadata = EMPTY
+
+	def apply(path: String): DslamMetadata = EMPTY.copy(relativePath = path)
+
+	def apply(first: DslamMetadata, second: DslamMetadata, recordsCount: Int): DslamMetadata =
+		EMPTY.copy(s"${first.columns},${second.columns}", recordsCount = recordsCount)
+
 	def toMap(dslam: DslamMetadata): Map[String, Any] = {
 		Map (
-			"isInstant" -> dslam.isInstant,
-			"dslam" -> dslam.name,
-			"metricsTime" -> dslam.ts,
 			"fileTime" -> dslam.fileTime,
 			"processingTime" -> dslam.processingTime,
 			"componentFileTime" -> dslam.componentFileTime,
@@ -53,13 +54,10 @@ object DslamMetadata {
 		)
 	}
 
-	def getSchema(): Schema = {
+	def getSchema: Schema = {
 		org.apache.avro.SchemaBuilder
 			.record("DslamMetaData").namespace("com.nbnco")
 			.fields()
-			.name("isInstant").`type`("boolean").noDefault()
-			.name("name").`type`("string").noDefault()
-			.name("metricsTime").`type`("long").noDefault()
 			.name("relativePath").`type`("string").noDefault()
 			.name("fileTime").`type`("long").noDefault()
 			.name("processingTime").`type`("long").noDefault()

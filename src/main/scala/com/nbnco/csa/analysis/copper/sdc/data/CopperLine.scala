@@ -21,7 +21,7 @@ package com.nbnco.csa.analysis.copper.sdc.data
 trait CopperLine extends TemporalEvent {
 	val dslam: String
 	val port: String
-//	def this ( ) = this (0L, "", "")
+
 	def toMap: Map[String, Any] = {
 		Map (
 			"dslam" -> dslam,

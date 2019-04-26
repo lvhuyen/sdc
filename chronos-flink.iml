@@ -79,6 +79,70 @@
     <orderEntry type="library" name="Maven: org.apache.flink:flink-core:1.8.0" level="project" />
     <orderEntry type="library" name="Maven: org.apache.flink:flink-annotations:1.8.0" level="project" />
     <orderEntry type="library" name="Maven: org.apache.flink:flink-metrics-core:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-java:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-shaded-asm:5.0.4-6.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-shaded-asm-6:6.2.1-6.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-shaded-guava:18.0-6.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:force-shading:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-streaming-scala_2.11:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-streaming-java_2.11:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-parquet:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-connector-elasticsearch6_2.11:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-connector-elasticsearch-base_2.11:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-connector-filesystem_2.11:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-s3-fs-hadoop:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-statebackend-rocksdb_2.11:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: com.data-artisans:frocksdbjni:5.17.2-artisans-1.0" level="project" />
+    <orderEntry type="library" name="Maven: org.elasticsearch.client:elasticsearch-rest-high-level-client:6.2.4" level="project" />
+    <orderEntry type="library" name="Maven: org.elasticsearch:elasticsearch:6.2.4" level="project" />
+    <orderEntry type="library" name="Maven: org.elasticsearch:elasticsearch-core:6.2.4" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.lucene:lucene-core:7.2.1" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.lucene:lucene-analyzers-common:7.2.1" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.lucene:lucene-backward-codecs:7.2.1" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.lucene:lucene-grouping:7.2.1" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.lucene:lucene-highlighter:7.2.1" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.lucene:lucene-join:7.2.1" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.lucene:lucene-memory:7.2.1" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.lucene:lucene-misc:7.2.1" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.lucene:lucene-queries:7.2.1" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.lucene:lucene-queryparser:7.2.1" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.lucene:lucene-sandbox:7.2.1" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.lucene:lucene-spatial:7.2.1" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.lucene:lucene-spatial-extras:7.2.1" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.lucene:lucene-spatial3d:7.2.1" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.lucene:lucene-suggest:7.2.1" level="project" />
+    <orderEntry type="library" name="Maven: org.elasticsearch:securesm:1.2" level="project" />
+    <orderEntry type="library" name="Maven: org.elasticsearch:elasticsearch-cli:6.2.4" level="project" />
+    <orderEntry type="library" name="Maven: com.fasterxml.jackson.core:jackson-core:2.8.10" level="project" />
+    <orderEntry type="library" name="Maven: com.tdunning:t-digest:3.0" level="project" />
+    <orderEntry type="library" name="Maven: org.elasticsearch.client:elasticsearch-rest-client:6.2.4" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.httpcomponents:httpcore:4.4.5" level="project" />
+    <orderEntry type="library" name="Maven: org.elasticsearch.plugin:parent-join-client:6.2.4" level="project" />
+    <orderEntry type="library" name="Maven: org.locationtech.spatial4j:spatial4j:0.6" level="project" />
+    <orderEntry type="library" name="Maven: com.vividsolutions:jts:1.13" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.logging.log4j:log4j-core:2.9.1" level="project" />
+    <orderEntry type="library" name="Maven: org.elasticsearch.plugin:aggs-matrix-stats-client:6.2.4" level="project" />
+    <orderEntry type="library" name="Maven: org.elasticsearch.plugin:rank-eval-client:6.2.4" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-metrics-dropwizard:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-table-planner_2.11:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-table-api-java-bridge_2.11:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-table-api-java:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-table-api-scala-bridge_2.11:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-table-api-scala_2.11:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-table-common:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-table_2.11:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-runtime-web_2.11:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-runtime_2.11:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-queryable-state-client-java_2.11:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-hadoop-fs:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-clients_2.11:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-optimizer_2.11:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-shaded-netty:4.1.32.Final-6.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-shaded-jackson:2.7.9-6.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-scala_2.11:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-core:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-annotations:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-metrics-core:1.8.0" level="project" />
     <orderEntry type="library" name="Maven: org.apache.commons:commons-lang3:3.3.2" level="project" />
     <orderEntry type="library" name="Maven: com.esotericsoftware.kryo:kryo:2.24.0" level="project" />
     <orderEntry type="library" name="Maven: com.esotericsoftware.minlog:minlog:1.2" level="project" />
