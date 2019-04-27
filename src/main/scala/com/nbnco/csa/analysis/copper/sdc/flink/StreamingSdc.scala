@@ -12,6 +12,7 @@ import org.apache.flink.api.common.io.FilePathFilter
 import org.apache.flink.api.common.typeinfo.TypeInformation
 import org.apache.flink.api.java.io.TextInputFormat
 import org.apache.flink.api.java.utils.ParameterTool
+import org.apache.flink.contrib.streaming.state.RocksDBStateBackend
 import org.apache.flink.core.fs.Path
 import org.apache.flink.runtime.state.filesystem.FsStateBackend
 import org.apache.flink.streaming.api.environment.CheckpointConfig.ExternalizedCheckpointCleanup
@@ -30,18 +31,18 @@ object StreamingSdc {
 		val cfgCheckpointMinPause = appConfig.getLong("checkpoint.minimum-pause", 600000L)
 		val cfgCheckpointStopJobWhenFail = appConfig.getBoolean("checkpoint.stop-job-when-fail", true)
 
-//		val streamEnv =
-//			if (cfgCheckpointEnabled) StreamExecutionEnvironment.getExecutionEnvironment
-//					.setStateBackend(new RocksDBStateBackend(cfgCheckpointLocation, true))
-//					.enableCheckpointing(cfgCheckpointInterval)
-//			else StreamExecutionEnvironment.getExecutionEnvironment
-
-
 		val streamEnv =
 			if (cfgCheckpointEnabled) StreamExecutionEnvironment.getExecutionEnvironment
-					.setStateBackend(new FsStateBackend(cfgCheckpointLocation, true))
+					.setStateBackend(new RocksDBStateBackend(cfgCheckpointLocation, true))
 					.enableCheckpointing(cfgCheckpointInterval)
 			else StreamExecutionEnvironment.getExecutionEnvironment
+
+
+//		val streamEnv =
+//			if (cfgCheckpointEnabled) StreamExecutionEnvironment.getExecutionEnvironment
+//					.setStateBackend(new FsStateBackend(cfgCheckpointLocation, true))
+//					.enableCheckpointing(cfgCheckpointInterval)
+//			else StreamExecutionEnvironment.getExecutionEnvironment
 
 
 		if (cfgCheckpointEnabled) {
@@ -225,9 +226,8 @@ object StreamingSdc {
 
 		/** Enrich SDC Streams */
 		val streamPctls = readPercentilesTable(appConfig, streamEnv)
-		val streamSdcEnriched: DataStream[SdcCombined] = EnrichSdcRecord(streamSdcCombinedRaw, streamPctls, streamEnrichmentAgg)
-
-		streamSdcEnriched.print()
+		val streamSdcEnriched: DataStream[SdcCombined] =
+			EnrichSdcRecord(streamSdcCombinedRaw.startNewChain().filter(_.dataI.ifAdminStatus.booleanValue()), streamPctls, streamEnrichmentAgg)
 
 		/** Handling Nosync */
 		val streamNosyncCandidate = readNoSyncMonitoringData(appConfig, streamEnv)
@@ -236,10 +236,10 @@ object StreamingSdc {
 		val indexName = s"${appConfig.get("source.elasticsearch.sdc.index-name", appConfig.get("sink.elasticsearch.sdc.index-name", "copper-sdc-combined-default"))}*"
 		val docType = appConfig.get("source.elasticsearch.sdc.doc-type", "_doc")
 		val recordsCount = appConfig.getInt("source.nosync-candicate.measurements-count", 96)
-		val esQueryTimeout = appConfig.getInt("source.nosync-candicate.timeout-seconds", 3)
+		val esQueryTimeout = appConfig.getInt("source.nosync-candicate.timeout-seconds", 5)
 
 		val (streamNosyncEsData, streamNosyncToggle, streamNosyncRetry) =
-			ReadHistoricalDataFromES.readAndParse(streamNosyncCandidate, esUrl, indexName, docType, recordsCount, esQueryTimeout)
+			ReadHistoricalDataFromES(streamNosyncCandidate, esUrl, indexName, docType, recordsCount, esQueryTimeout)
 
 
 		val streamNosyncData = new DataStreamUtils(streamSdcEnriched)
@@ -247,8 +247,6 @@ object StreamingSdc {
 				.connect(streamNosyncToggle.keyBy(r => r._1))
 				.flatMap(new NosyncCandicateFilter())
 				.union(streamNosyncEsData)
-
-		streamNosyncData.print()
 
 		/** Output */
 		val cfgParquetEnabled = appConfig.getBoolean("sink.parquet.enabled", false)

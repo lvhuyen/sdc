@@ -21,7 +21,7 @@ import org.elasticsearch.search.builder.SearchSourceBuilder
 import org.elasticsearch.search.sort.{FieldSortBuilder, SortOrder}
 import org.slf4j.{Logger, LoggerFactory}
 
-import scala.collection.JavaConversions._
+import scala.collection.JavaConverters._
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.util.{Failure, Success, Try}
 
@@ -59,12 +59,12 @@ object ReadHistoricalDataFromES {
 	  *         DataStream[(String, String), Bool)]: this is the mapping of input stream (AVC, flag) -> ((dslam, port), flag)
 	  *         DataStream[(String, Bool)]: the records from the input stream which the function failed to read data from ElasticSearch
 	  */
-	def readAndParse(streamInput: DataStream[(String, Boolean)],
-					 esServerUrl: String,
-					 indexName: String,
-					 docType: String,
-					 maxNumberOfRecordsToRead: Int,
-					 esQueryTimeoutInSeconds: Int): (DataStream[SdcCompact], DataStream[((String, String), Boolean)], DataStream[(String, Boolean)]) = {
+	def apply(streamInput: DataStream[(String, Boolean)],
+			  esServerUrl: String,
+			  indexName: String,
+			  docType: String,
+			  maxNumberOfRecordsToRead: Int,
+			  esQueryTimeoutInSeconds: Int): (DataStream[SdcCompact], DataStream[((String, String), Boolean)], DataStream[(String, Boolean)]) = {
 
 		//  Read Async. Adding 5 seconds to the timeout so this Async function would never timeout
 		val streamEsSearchResponse = AsyncDataStream.unorderedWait(streamInput,
@@ -99,10 +99,10 @@ object ReadHistoricalDataFromES {
 						if (raw._2) {
 							/** Only in case the flag is "on": parse the results into SdcCompact */
 							searchResponse.getHits.getHits.foreach(r =>
-								Try(SdcCompact(r.getSortValues.head.asInstanceOf[JLong], raw._1, r.getSourceAsMap)) match {
+								Try(SdcCompact(r.getSortValues.head.asInstanceOf[JLong], raw._1, r.getSourceAsMap.asScala)) match {
 									case Success(sdcCompact) => collector.collect(sdcCompact)
 									case Failure(e) =>
-										LOG.warn(s"Error while reading data from ElasticSearch for AVC ${raw._1} with data ${r.getSourceAsMap}: ${e}")
+										LOG.warn(s"Error while parsing data from ElasticSearch for AVC ${raw._1} with data ${r.getSourceAsMap}: ${e}")
 								}
 							)
 						}

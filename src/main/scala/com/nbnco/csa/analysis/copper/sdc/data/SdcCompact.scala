@@ -15,15 +15,15 @@ object SdcCompact {
 
     def apply(ts: JLong, avc: String, source: collection.mutable.Map[String, AnyRef]): SdcCompact = {
         this(ts,
-            source.get(FieldName.DSLAM).asInstanceOf[String],
-            source.get(FieldName.PORT).asInstanceOf[String],
+            source.getOrElse(FieldName.DSLAM, "").asInstanceOf[String],
+            source.getOrElse(FieldName.PORT, "").asInstanceOf[String],
             Some(avc),
-            Try(source.get(FieldName.LPR).asInstanceOf[String].toShort: JShort).toOption,
-            Try(source.get(FieldName.REINIT).asInstanceOf[String].toShort: JShort).toOption,
-            Try(source.get(FieldName.UAS).asInstanceOf[String].toShort: JShort).toOption,
-            source.get(FieldName.ATTNDRDS).asInstanceOf[String].toInt,
-            source.get(FieldName.ATTNDRUS).asInstanceOf[String].toInt,
-            source.get(FieldName.IFOPERSTATUS).asInstanceOf[String].equals("up")
+            source.get(FieldName.LPR).map(_.asInstanceOf[String].toShort),
+            source.get(FieldName.REINIT).map(_.asInstanceOf[String].toShort),
+            source.get(FieldName.UAS).map(_.asInstanceOf[String].toShort),
+            source.getOrElse(FieldName.ATTNDRDS,"0").asInstanceOf[String].toInt,
+            source.getOrElse(FieldName.ATTNDRUS,"0").asInstanceOf[String].toInt,
+            source.getOrElse(FieldName.IFOPERSTATUS,"down").asInstanceOf[String].equals("up")
         )
     }
 

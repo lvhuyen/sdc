@@ -10,14 +10,13 @@ import org.apache.flink.api.common.functions.RuntimeContext
 import org.apache.flink.streaming.connectors.elasticsearch6.ElasticsearchSink
 import org.apache.flink.util.ExceptionUtils
 import org.apache.http.HttpHost
-import org.elasticsearch.ElasticsearchParseException
 import org.elasticsearch.action.ActionRequest
 import org.elasticsearch.action.update.UpdateRequest
 import org.elasticsearch.action.index.IndexRequest
 import org.elasticsearch.common.util.concurrent.EsRejectedExecutionException
 import org.slf4j.LoggerFactory
 
-import scala.collection.JavaConversions._
+import scala.collection.JavaConverters.mapAsJavaMap
 
 /**
   * Created by Huyen on 19/9/18.

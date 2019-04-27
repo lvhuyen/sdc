@@ -1,7 +1,7 @@
 package com.nbnco.csa.analysis.copper.sdc.flink
 
 import com.nbnco.csa.analysis.copper.sdc.data.TemporalEvent
-import org.apache.flink.streaming.api.functions.timestamps.AscendingTimestampExtractor
+import org.apache.flink.streaming.api.functions.timestamps.{AscendingTimestampExtractor, BoundedOutOfOrdernessTimestampExtractor}
 import org.apache.flink.streaming.api.windowing.time.Time
 
 /**
@@ -47,7 +47,11 @@ package object operator {
 	}
 
 	class SdcRecordTimeAssigner[Type <: TemporalEvent]
-			extends AscendingTimestampExtractor[Type] {
-		override def extractAscendingTimestamp(record: Type): Long = record.ts
+			extends BoundedOutOfOrdernessTimestampExtractor[Type](Time.milliseconds(0)) {
+		override def extractTimestamp(t: Type): Long = t.ts
 	}
+//	class SdcRecordTimeAssigner[Type <: TemporalEvent]
+//			extends AscendingTimestampExtractor[Type] {
+//		override def extractAscendingTimestamp(record: Type): Long = record.ts
+//	}
 }

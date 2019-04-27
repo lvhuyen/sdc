@@ -102,41 +102,6 @@ object TestES {
 		import java.net.URI
 		val fs = org.apache.flink.core.fs.FileSystem.get(URI.create(configFile))
 		val appConfig = ParameterTool.fromPropertiesFile(fs.open(new Path(configFile)))
-		val debug = appConfig.getBoolean("debug", false)
-
-		val cfgElasticSearchEndpoint = appConfig.get("sink.elasticsearch.endpoint", "vpc-assn-dev-chronos-devops-pmwehr2e7xujnadk53jsx4bjne.ap-southeast-2.es.amazonaws.com")
-		val cfgElasticSearchBulkActions = appConfig.getInt("sink.elasticsearch.bulk-actions", 10000)
-		val cfgElasticSearchBulkSize = appConfig.getInt("sink.elasticsearch.bulk-size-mb", 10)
-		val cfgElasticSearchMaxRetries = appConfig.getInt("sink.elasticsearch.max-retries-in-nine-minutes", 3 * cfgElasticSearchBulkActions)
-		val cfgElasticSearchBulkInterval = appConfig.getInt("sink.elasticsearch.bulk-interval-ms", 60000)
-		val cfgElasticSearchBackoffDelay = appConfig.getInt("sink.elasticsearch.bulk-flush-backoff-delay-ms", 100)
-
-		val cfgElasticSearchCombinedSdcEnabled = appConfig.getBoolean("sink.elasticsearch.sdc.enabled", false)
-		val cfgElasticSearchCombinedSdcIndexName = appConfig.get("sink.elasticsearch.sdc.index-name", "copper-sdc-combined-default")
-		val cfgElasticSearchCombinedSdcParallelism = appConfig.getInt("sink.elasticsearch.sdc.parallelism", 4)
-
-		val cfgElasticSearchAverageParallelism = appConfig.getInt("sink.elasticsearch.average.parallelism", 4)
-
-		val cfgElasticSearchEnrichmentEnabled = appConfig.getBoolean("sink.elasticsearch.enrichment.enabled", false)
-		val cfgElasticSearchEnrichmentIndexName = appConfig.get("sink.elasticsearch.enrichment.index-name", "copper-enrichment-default")
-		val cfgElasticSearchEnrichmentParallelism = appConfig.getInt("sink.elasticsearch.enrichment.parallelism", 1)
-
-		val cfgElasticSearchStatsEnabled = appConfig.getBoolean("sink.elasticsearch.stats.enabled", false)
-		val cfgElasticSearchStatsDslamMetaIndexName = appConfig.get("sink.elasticsearch.stats.dslam-meta.index-name", "copper-sdc-dslam-metadata")
-		val cfgElasticSearchStatsMissingInstantIndexName = appConfig.get("sink.elasticsearch.stats.missing-instant.index-name", "copper-sdc-dslam-missing-instant")
-		val cfgElasticSearchStatsMissingHistoricalIndexName = appConfig.get("sink.elasticsearch.stats.missing-historical.index-name", "copper-sdc-dslam-missing-historical")
-
-		val cfgRollingAverageWindowInterval = appConfig.getLong("rolling-average.window-interval-minutes", 120)
-		val cfgRollingAverageSlideInterval = appConfig.getLong("rolling-average.slide-interval-minutes", 15)
-		val cfgRollingAverageAllowedLateness = appConfig.getLong("rolling-average.allowed-lateness-minutes", 600)
-
-		val cfgParquetEnabled = appConfig.getBoolean("sink.parquet.enabled", false)
-		val cfgParquetParallelism = appConfig.getInt("sink.parquet.parallelism", 4)
-		val cfgParquetPrefix = appConfig.get("sink.parquet.prefix", "")
-		val cfgParquetSuffixFormat = appConfig.get("sink.parquet.suffixFormat", "yyyy-MM-dd-hh")
-		val cfgParquetInstantPath = appConfig.get("sink.parquet.instant.path", "file:///Users/Huyen/Desktop/SDCTest/output/instant")
-		val cfgParquetHistoricalPath = appConfig.get("sink.parquet.historical.path", "file:///Users/Huyen/Desktop/SDCTest/output/historical")
-		val cfgParquetMetadataPath = appConfig.get("sink.parquet.metadata", "file:///Users/Huyen/Desktop/SDCTest/output/metadata")
 
 		/** set up the streaming execution environment */
 		val streamEnv = initEnvironment(appConfig)
@@ -149,14 +114,14 @@ object TestES {
         		.map((_, true))
 
 
-		val serverUrl = "vpc-csa-chronos-analytics-prod-r3g6gdlvwljkufo3i5mv4mbw74.ap-souatheast-2.es.amazonaws.com"
+		val serverUrl = "vpc-csa-chronos-analytics-prod-r3g6gdlvwljkufo3i5mv4mbw74.ap-southeast-2.es.amazonaws.com"
 		val indexName = "sdc-counters-prod*"
 		val docType = "counters"
 		val cnt = 2
 		val timeout = 3
 
 		val (streamEsData, streamNosyncToggle, streamNosyncRetry) =
-			ReadHistoricalDataFromES.readAndParse(streamInput, serverUrl, indexName, docType, cnt, timeout)
+			ReadHistoricalDataFromES(streamInput, serverUrl, indexName, docType, cnt, timeout)
 
 		streamInput.print()
 		streamEsData.print()
