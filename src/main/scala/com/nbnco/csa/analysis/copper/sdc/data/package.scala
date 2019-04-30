@@ -11,17 +11,12 @@ import scala.util.matching.Regex
   */
 package object data {
 	type EnrichmentData = Map[EnrichmentAttributeName.Value, Any]
-	type JFloat = java.lang.Float
-	type JBool = java.lang.Boolean
-	type JInt = java.lang.Integer
-	type JShort = java.lang.Short
-	type JLong = java.lang.Long
 
 	object DslamType {
-		val DSLAM_NONE: JInt = 0
-		val DSLAM_HISTORICAL: JInt = 1
-		val DSLAM_INSTANT: JInt = 2
-		val DSLAM_COMBINED: JInt = 3
+		val DSLAM_NONE: Int = 0
+		val DSLAM_HISTORICAL: Int = 1
+		val DSLAM_INSTANT: Int = 2
+		val DSLAM_COMBINED: Int = 3
 	}
 
 	object EnrichmentAttributeName extends Enumeration {

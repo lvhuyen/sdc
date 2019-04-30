@@ -4,11 +4,13 @@ import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 import com.nbnco.csa.analysis.copper.sdc.data._
+import com.nbnco.csa.analysis.copper.sdc.flink.cep.NoSync
 import com.nbnco.csa.analysis.copper.sdc.flink.operator.ReadHistoricalDataFromES.ReadHistoricalDataFromES
 import com.nbnco.csa.analysis.copper.sdc.flink.operator._
 import com.nbnco.csa.analysis.copper.sdc.flink.sink.{SdcElasticSearchSink, SdcParquetFileSink}
 import com.nbnco.csa.analysis.copper.sdc.flink.source._
 import org.apache.flink.api.common.io.FilePathFilter
+import org.apache.flink.api.common.serialization.SimpleStringEncoder
 import org.apache.flink.api.common.typeinfo.TypeInformation
 import org.apache.flink.api.java.io.TextInputFormat
 import org.apache.flink.api.java.utils.ParameterTool
@@ -16,6 +18,8 @@ import org.apache.flink.contrib.streaming.state.RocksDBStateBackend
 import org.apache.flink.core.fs.Path
 import org.apache.flink.runtime.state.filesystem.FsStateBackend
 import org.apache.flink.streaming.api.environment.CheckpointConfig.ExternalizedCheckpointCleanup
+import org.apache.flink.streaming.api.functions.sink.filesystem.StreamingFileSink
+import org.apache.flink.streaming.api.functions.sink.filesystem.bucketassigners.DateTimeBucketAssigner
 import org.apache.flink.streaming.api.functions.source.FileProcessingMode
 import org.apache.flink.streaming.api.scala._
 import org.apache.flink.streaming.api.{CheckpointingMode, TimeCharacteristic}
@@ -206,7 +210,6 @@ object StreamingSdc {
 		val appConfig = ParameterTool.fromPropertiesFile(fs.open(new Path(configFile)))
 		val debug = appConfig.getBoolean("debug", false)
 
-
 		/** set up the streaming execution environment */
 		val streamEnv = initEnvironment(appConfig)
 
@@ -220,14 +223,32 @@ object StreamingSdc {
 		val cfgSdcScanInterval = appConfig.getLong("sources.sdc.scan-interval", 10000L)
 		val cfgSdcScanConsistency = appConfig.getLong("sources.sdc.scan-consistency-offset", 2000L)
 		val cfgSdcIgnoreThreshold = appConfig.getLong("sources.sdc.ignore-files-older-than-minutes", 10000) * 60 * 1000
+		val cfgSdcCombinerLateAllowness = appConfig.getLong("sources.sdc.allow-late-files-upto-minutes", 120) * 60 * 1000
 
-		val (streamDslamCombined, streamDslamUnmatched, streamDslamMetadata) = ReadAndCombineRawSdcFiles(streamEnv, cfgSdcInstantLocation, cfgSdcHistoricalLocation, cfgSdcScanInterval, cfgSdcScanConsistency, cfgSdcIgnoreThreshold, 20 * 60 * 1000)
+		val cfgReadAfterCombine = appConfig.getBoolean("read.after.combine", false)
+
+		val (streamDslamCombined, streamDslamUnmatched, streamDslamMetadata) =
+			ReadAndCombineRawSdcFiles(streamEnv,
+				cfgSdcInstantLocation,
+				cfgSdcHistoricalLocation,
+				cfgSdcScanInterval,
+				cfgSdcScanConsistency,
+				cfgSdcIgnoreThreshold,
+				cfgSdcCombinerLateAllowness,
+				readAfterCombine = cfgReadAfterCombine)
 		val streamSdcCombinedRaw: DataStream[SdcCombined] = ParseCombinedSdcRecord(streamDslamCombined)
 
 		/** Enrich SDC Streams */
 		val streamPctls = readPercentilesTable(appConfig, streamEnv)
 		val streamSdcEnriched: DataStream[SdcCombined] =
-			EnrichSdcRecord(streamSdcCombinedRaw.startNewChain().filter(_.dataI.ifAdminStatus.booleanValue()), streamPctls, streamEnrichmentAgg)
+			EnrichSdcRecord(streamSdcCombinedRaw.filter(_.dataI.ifAdminStatus.booleanValue()), streamPctls, streamEnrichmentAgg)
+
+		if (debug) {
+			streamSdcEnriched.print()
+			NoSync(streamSdcEnriched.filter(_.port == "R1.S1.LT1.P3").map(SdcCompact(_))
+					.assignTimestampsAndWatermarks(SdcRecordTimeAssigner[SdcCompact])
+					.keyBy(r => (r.dslam, r.port)), 3, 2, 6).print()
+		}
 
 		/** Handling Nosync */
 		val streamNosyncCandidate = readNoSyncMonitoringData(appConfig, streamEnv)
@@ -244,9 +265,9 @@ object StreamingSdc {
 
 		val streamNosyncData = new DataStreamUtils(streamSdcEnriched)
 				.reinterpretAsKeyedStream(r => (r.dslam, r.port))
-				.connect(streamNosyncToggle.keyBy(r => r._1))
+				.connect(streamNosyncToggle.keyBy(_._1))
 				.flatMap(new NosyncCandicateFilter())
-				.union(streamNosyncEsData)
+				.union(streamNosyncEsData.keyBy(r => (r.dslam, r.port)))
 
 		/** Output */
 		val cfgParquetEnabled = appConfig.getBoolean("sink.parquet.enabled", false)
@@ -256,6 +277,7 @@ object StreamingSdc {
 			val cfgParquetSuffixFormat = appConfig.get("sink.parquet.suffixFormat", "yyyy-MM-dd-hh")
 			val cfgParquetInstantPath = appConfig.get("sink.parquet.sdc.path", "file:///Users/Huyen/Desktop/SDCTest/output/sdc")
 			val cfgParquetMetadataPath = appConfig.get("sink.parquet.metadata.path", "file:///Users/Huyen/Desktop/SDCTest/output/metadata")
+			val cfgCsvUnmatchedPath = appConfig.get("sink.csv.unmatched.path", "file:///Users/Huyen/Desktop/SDCTest/output/metadata")
 
 			streamSdcEnriched.addSink(
 				SdcParquetFileSink.buildSinkGeneric[SdcCombined](SdcCombined.SCHEMA,
@@ -270,8 +292,13 @@ object StreamingSdc {
 					.setParallelism(1)
 					.uid(OperatorId.SINK_PARQUET_METADATA)
 					.name("S3 - Metadata")
-		}
 
+			streamDslamUnmatched.map(r => s"${r.name},${r.ts},${r.dslamType},${r.metadata.relativePath}")
+					.addSink(StreamingFileSink
+							.forRowFormat(new Path(cfgCsvUnmatchedPath), new SimpleStringEncoder[String]("UTF-8"))
+							.withBucketAssigner(new DateTimeBucketAssigner[String]("yyyy-MM-dd"))
+							.build())
+		}
 
 		val cfgElasticSearchEndpoint = appConfig.get("sink.elasticsearch.endpoint", "vpc-assn-dev-chronos-devops-pmwehr2e7xujnadk53jsx4bjne.ap-southeast-2.es.amazonaws.com")
 		val cfgElasticSearchBulkActions = appConfig.getInt("sink.elasticsearch.bulk-actions", 10000)

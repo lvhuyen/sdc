@@ -1,11 +1,12 @@
 package com.nbnco.csa.analysis.copper.sdc.flink.operator
 
+import java.lang.{Float => JFloat}
 import scala.util.parsing.json.JSON
-import com.nbnco.csa.analysis.copper.sdc.data.JFloat
 import org.apache.flink.api.common.functions.FlatMapFunction
 import org.apache.flink.util.Collector
 import org.slf4j.LoggerFactory
 
+// Because of MapState support the basic FLOAT_ARRAY_TYPE_INFO, so java.lang.Float is used instead of Scala Float
 class ParsePercentilesRecord extends FlatMapFunction[String, (String, List[JFloat])] {
 	override def flatMap(t: String, collector: Collector[(String, List[JFloat])]): Unit = {
 		JSON.parseFull(t) match {

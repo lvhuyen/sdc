@@ -1,6 +1,7 @@
 package com.nbnco.csa.analysis.copper.sdc.flink.operator
 
 import com.nbnco.csa.analysis.copper.sdc.data._
+import java.lang.{Float => JFloat}
 import scala.math.pow
 
 /**

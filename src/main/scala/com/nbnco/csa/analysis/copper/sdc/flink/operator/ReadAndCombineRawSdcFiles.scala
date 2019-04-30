@@ -3,7 +3,6 @@ import com.nbnco.csa.analysis.copper.sdc.data.DslamType._
 import com.nbnco.csa.analysis.copper.sdc.data._
 import com.nbnco.csa.analysis.copper.sdc.flink.source.{SdcFilePathFilter, SdcTarInputFormat, SdcTarInputFormatLite}
 import org.apache.flink.api.common.state.ValueStateDescriptor
-import org.apache.flink.api.common.typeinfo.TypeInformation
 import org.apache.flink.configuration.Configuration
 import org.apache.flink.core.fs.{FileInputSplit, Path}
 import org.apache.flink.streaming.api.functions.source.FileProcessingMode
@@ -11,7 +10,7 @@ import org.apache.flink.streaming.api.scala.{DataStream, OutputTag, StreamExecut
 import org.apache.flink.streaming.api.scala.function.ProcessWindowFunction
 import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows
 import org.apache.flink.streaming.api.windowing.time.Time
-import org.apache.flink.streaming.api.windowing.triggers.{EventTimeTrigger, Trigger, TriggerResult}
+import org.apache.flink.streaming.api.windowing.triggers.{Trigger, TriggerResult}
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow
 import org.apache.flink.util.Collector
 
@@ -29,19 +28,23 @@ object ReadAndCombineRawSdcFiles {
 	  * @param cfgSdcScanConsistency
 	  * @param cfgSdcIgnoreThreshold
 	  * @param allowedLateness
-	  * @param tumplingWindowSize
+	  * @param tumblingWindowSize
 	  * @return: a tuple of three DataStreams:
 	  *         One raw stream of type DslamRaw[ Map[String,String] ] which contains the merged of I&H data
 	  *         One stream of un-matched dslam files (either I or H)
 	  *         One stream metadata, one record for each I or H file.
 	  */
 	def apply(streamEnv: StreamExecutionEnvironment,
-					cfgSdcInstantLocation: String, cfgSdcHistoricalLocation: String,
-					cfgSdcScanInterval: Long, cfgSdcScanConsistency: Long, cfgSdcIgnoreThreshold: Long,
-					allowedLateness: Long, tumplingWindowSize: Long = 900000L):
+			  cfgSdcInstantLocation: String, cfgSdcHistoricalLocation: String,
+			  cfgSdcScanInterval: Long, cfgSdcScanConsistency: Long, cfgSdcIgnoreThreshold: Long,
+			  allowedLateness: Long, tumblingWindowSize: Long = 900000L,
+			  readAfterCombine: Boolean = false):
 	(DataStream[DslamRaw[Map[String, String]]], DataStream[DslamRaw[None.type]], DataStream[DslamRaw[None.type]]) = {
 
-		readSdcData2(streamEnv, cfgSdcInstantLocation, cfgSdcHistoricalLocation,cfgSdcScanInterval, cfgSdcScanConsistency, cfgSdcIgnoreThreshold, allowedLateness, tumplingWindowSize)
+		if (readAfterCombine)
+			readSdcData2(streamEnv, cfgSdcInstantLocation, cfgSdcHistoricalLocation,cfgSdcScanInterval, cfgSdcScanConsistency, cfgSdcIgnoreThreshold, allowedLateness, tumblingWindowSize)
+		else
+			readSdcData(streamEnv, cfgSdcInstantLocation, cfgSdcHistoricalLocation,cfgSdcScanInterval, cfgSdcScanConsistency, cfgSdcIgnoreThreshold, allowedLateness, tumblingWindowSize)
 	}
 
 	/**
@@ -70,7 +73,7 @@ object ReadAndCombineRawSdcFiles {
 					cfgSdcHistoricalLocation,
 					FileProcessingMode.PROCESS_CONTINUOUSLY,
 					cfgSdcScanInterval, cfgSdcScanConsistency)
-				.uid(OperatorId.SOURCE_SDC_HISTORICAL)
+				.uid(OperatorId.SOURCE_SDC_HISTORICAL + "_v0")
 				.name("Read SDC Historical")
 
 		val streamDslamI: DataStream[IntermediateDataType] = streamEnv
@@ -78,7 +81,7 @@ object ReadAndCombineRawSdcFiles {
 					cfgSdcInstantLocation,
 					FileProcessingMode.PROCESS_CONTINUOUSLY,
 					cfgSdcScanInterval, cfgSdcScanConsistency)
-				.uid(OperatorId.SOURCE_SDC_INSTANT)
+				.uid(OperatorId.SOURCE_SDC_INSTANT + "_v0")
 				.name("Read SDC Instant")
 
 		val streamDslamFull: DataStream[IntermediateDataType] = streamDslamH.assignTimestampsAndWatermarks(SdcRecordTimeAssigner[IntermediateDataType])
@@ -91,7 +94,7 @@ object ReadAndCombineRawSdcFiles {
 				.allowedLateness(Time.milliseconds(allowedLateness))
 				.sideOutputLateData(outputTagUnmatched)
 				.process(new ReadAndCombineRawSdcFiles.ByPortAggregator(outputTagUnmatched))
-        		.uid(OperatorId.SDC_COMBINER)
+        		.uid(OperatorId.SDC_COMBINER + "_v0")
 
 		(streamDslamMerged,
 				streamDslamMerged.getSideOutput(outputTagUnmatched).map(r => r.copy(data = None)),
@@ -252,8 +255,6 @@ object ReadAndCombineRawSdcFiles {
 		}
 
 		override def process(key: String, context: Context, elements: Iterable[DslamRaw[FileInputSplit]], out: Collector[DslamRaw[Map[String, String]]]): Unit = {
-			Thread.sleep(5000)
-
 			(parseToPort(elements.find(_.dslamType == DslamType.DSLAM_INSTANT)),
 					parseToPort(elements.find(_.dslamType == DslamType.DSLAM_HISTORICAL))) match {
 

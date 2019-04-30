@@ -14,15 +14,15 @@ package com.nbnco.csa.analysis.copper.sdc.data
   * @param reTransDs    xdslChannelPreviousIntervalRetransmDtuCounterDS
   *                     Drop-out = reInit - LPR
   */
-case class SdcDataHistorical(ses: JShort,
-                             uas: JShort,
-                             lprFe: JShort,
-                             sesFe: JShort,
-							 reInit: JShort,
-                             unCorrDtuDs: JLong,
-                             unCorrDtuUs: JLong,
-                             reTransUs : JLong,
-                             reTransDs: JLong
+case class SdcDataHistorical(ses: Short,
+                             uas: Short,
+                             lprFe: Short,
+                             sesFe: Short,
+							 reInit: Short,
+                             unCorrDtuDs: Long,
+                             unCorrDtuUs: Long,
+                             reTransUs : Long,
+                             reTransDs: Long
                             ) {
 	def toMap: Map[String, Any] = {
 		Map (

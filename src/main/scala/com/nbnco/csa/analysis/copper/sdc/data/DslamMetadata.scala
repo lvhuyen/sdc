@@ -1,5 +1,6 @@
 package com.nbnco.csa.analysis.copper.sdc.data
 
+import java.lang.{Long => JLong}
 import org.apache.avro.Schema
 import org.apache.avro.generic.IndexedRecord
 
@@ -8,10 +9,10 @@ import org.apache.avro.generic.IndexedRecord
   */
 case class DslamMetadata (columns: String,
 						  relativePath: String,
-						  fileTime: JLong,
-						  processingTime: JLong,
-						  componentFileTime: JLong,
-						  recordsCount: JInt)
+						  fileTime: Long,
+						  processingTime: Long,
+						  componentFileTime: Long,
+						  recordsCount: Int)
 		extends IndexedRecord {
 
 	override def getSchema: Schema = {
@@ -21,10 +22,10 @@ case class DslamMetadata (columns: String,
 	override def get(i: Int): AnyRef = {
 		i match {
 			case 0 => relativePath
-			case 1 => fileTime
-			case 2 => processingTime
-			case 3 => componentFileTime
-			case 4 => recordsCount
+			case 1 => fileTime: JLong
+			case 2 => processingTime: JLong
+			case 3 => componentFileTime: JLong
+			case 4 => recordsCount: Integer
 		}
 	}
 

@@ -1,5 +1,6 @@
 package com.nbnco.csa.analysis.copper.sdc.data
 
+import java.lang.{Long => JLong}
 import org.apache.avro.Schema
 import org.apache.avro.generic.IndexedRecord
 
@@ -8,20 +9,20 @@ import org.apache.avro.generic.IndexedRecord
   */
 case class DslamRaw[DataType](ts: Long,
 							  name: String,
-							  dslamType: JInt,
+							  dslamType: Int,
 							  data: DataType,
 							  metadata: DslamMetadata)
 		extends IndexedRecord with TemporalEvent {
 
 	override def get(i: Int): AnyRef = i match {
-		case 0 => ts.asInstanceOf[AnyRef]
+		case 0 => ts: JLong
 		case 1 => name
-		case 2 => dslamType
+		case 2 => dslamType: Integer
 		case 3 => metadata.relativePath
-		case 4 => metadata.fileTime
-		case 5 => metadata.processingTime
-		case 6 => metadata.componentFileTime
-		case 7 => metadata.recordsCount
+		case 4 => metadata.fileTime: JLong
+		case 5 => metadata.processingTime: JLong
+		case 6 => metadata.componentFileTime: JLong
+		case 7 => metadata.recordsCount: Integer
 
 	}
 

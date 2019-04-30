@@ -2,7 +2,6 @@
 //
 //import java.util.Properties
 //
-//import com.nbnco.csa.analysis.copper.sdc.data.SdcRecord
 //import org.apache.flink.streaming.connectors.kinesis.config.AWSConfigConstants
 //import org.apache.flink.streaming.connectors.kinesis.{FlinkKinesisProducer, KinesisPartitioner}
 //import org.apache.flink.streaming.util.serialization.SerializationSchema

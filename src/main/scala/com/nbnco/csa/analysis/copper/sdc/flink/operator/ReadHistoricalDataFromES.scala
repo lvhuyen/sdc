@@ -2,7 +2,7 @@ package com.nbnco.csa.analysis.copper.sdc.flink.operator
 
 import java.util.concurrent.TimeUnit
 
-import com.nbnco.csa.analysis.copper.sdc.data.{JLong, SdcCompact}
+import com.nbnco.csa.analysis.copper.sdc.data.{SdcCompact}
 import com.nbnco.csa.analysis.copper.sdc.flink.operator.ReadHistoricalDataFromES.FieldName._
 import org.apache.flink.runtime.concurrent.Executors
 import org.apache.flink.streaming.api.functions.ProcessFunction
@@ -99,7 +99,7 @@ object ReadHistoricalDataFromES {
 						if (raw._2) {
 							/** Only in case the flag is "on": parse the results into SdcCompact */
 							searchResponse.getHits.getHits.foreach(r =>
-								Try(SdcCompact(r.getSortValues.head.asInstanceOf[JLong], raw._1, r.getSourceAsMap.asScala)) match {
+								Try(SdcCompact(r.getSortValues.head.asInstanceOf[Long], raw._1, r.getSourceAsMap.asScala)) match {
 									case Success(sdcCompact) => collector.collect(sdcCompact)
 									case Failure(e) =>
 										LOG.warn(s"Error while parsing data from ElasticSearch for AVC ${raw._1} with data ${r.getSourceAsMap}: ${e}")

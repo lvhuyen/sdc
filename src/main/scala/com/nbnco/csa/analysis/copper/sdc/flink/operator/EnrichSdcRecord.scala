@@ -1,12 +1,15 @@
 package com.nbnco.csa.analysis.copper.sdc.flink.operator
 
 import com.nbnco.csa.analysis.copper.sdc.data._
+
+import java.lang.{Float => JFloat}
+
 import org.apache.flink.api.common.state.{MapStateDescriptor, ValueStateDescriptor}
 import org.apache.flink.api.common.typeinfo.{BasicArrayTypeInfo, BasicTypeInfo}
 import org.apache.flink.streaming.api.scala._
-import org.apache.flink.streaming.api.functions.co.{CoProcessFunction, KeyedBroadcastProcessFunction}
+import org.apache.flink.streaming.api.functions.co.KeyedBroadcastProcessFunction
 import org.apache.flink.streaming.api.scala.DataStream
-import org.apache.flink.util.{Collector, OutputTag}
+import org.apache.flink.util.Collector
 /**
   * Created by Huyen on 15/8/18.
   */
@@ -72,7 +75,7 @@ class EnrichSdcRecord extends KeyedBroadcastProcessFunction[(String, String), Co
 				collector.collect(
 					if (cachedEnrichmentData != null) {
 						val techType = cachedEnrichmentData.getOrElse(EnrichmentAttributeName.TECH_TYPE, TechType.NotSupported).asInstanceOf[TechType.TechType]
-						val atten365 = cachedEnrichmentData.getOrElse(EnrichmentAttributeName.ATTEN365, -1: Short).asInstanceOf[Short]
+						val atten365: Short = cachedEnrichmentData.getOrElse(EnrichmentAttributeName.ATTEN365, -1: Short).asInstanceOf[Short]
 						val dpboProfile = cachedEnrichmentData.getOrElse(EnrichmentAttributeName.DPBO_PROFILE, -1: Byte).asInstanceOf[Byte]
 						val tier_ds = cachedEnrichmentData.getOrElse(EnrichmentAttributeName.TC4_DS, "").asInstanceOf[String]
 						val tier_us = cachedEnrichmentData.getOrElse(EnrichmentAttributeName.TC4_US, "").asInstanceOf[String]
@@ -94,50 +97,3 @@ class EnrichSdcRecord extends KeyedBroadcastProcessFunction[(String, String), Co
 		}
 	}
 }
-
-//class EnrichSdcRecord(enrichedI: OutputTag[SdcEnrichedInstant], enrichedH: OutputTag[SdcEnrichedHistorical])
-//		extends CoProcessFunction[SdcRawBase, EnrichmentRecord, SdcEnrichedBase] {
-//
-//	val mappingDescriptor = new ValueStateDescriptor[EnrichmentData](
-//			"Enrichment_Mapping", classOf[EnrichmentData])
-//
-//	@ForwardedFields(Array("dslam","port"))
-//	override def processElement1(in1: SdcRawBase, context: CoProcessFunction[SdcRawBase, EnrichmentRecord, SdcEnrichedBase]#Context, out: Collector[SdcEnrichedBase]): Unit = {
-//		val mapping = getRuntimeContext.getState(mappingDescriptor).value
-//
-//		val result = if (mapping != null) in1.enrich(mapping) else in1.enrich(Map.empty)
-//		out.collect(result)
-//		result match {
-//			case i: SdcEnrichedInstant =>
-//				context.output(enrichedI, i)
-//			case h: SdcEnrichedHistorical =>
-//				context.output(enrichedH, h)
-//		}
-//	}
-//
-//	override def processElement2(in2: EnrichmentRecord, context: CoProcessFunction[SdcRawBase, EnrichmentRecord, SdcEnrichedBase]#Context, out: Collector[SdcEnrichedBase]): Unit = {
-//		val mapping = getRuntimeContext.getState(mappingDescriptor)
-//		mapping.update(
-//			if (mapping.value == null) in2.data
-//			else in2.data ++ mapping.value())
-//	}
-//}
-
-//class EnrichSdcRecord extends CoProcessFunction[SdcRaw, FlsRecord, SdcEnriched] {
-//	val mappingDescriptor = new ValueStateDescriptor[(String, String, Long)]("mapping", classOf[(String, String, Long)])
-//
-//	override def processElement1(in1: SdcRaw, context: CoProcessFunction[SdcRaw, FlsRecord, SdcEnriched]#Context, out: Collector[SdcEnriched]): Unit = {
-//		val mapping = getRuntimeContext.getState(mappingDescriptor).value
-//		val (avc_id, cpi, enrichment_date) =
-//			if (mapping != null) (Some(mapping._1), Some(mapping._2), mapping._3)
-//			else (None, None, -1L)
-//
-//		out.collect(in1.enrich(avc_id, cpi, enrichment_date))
-//	}
-//
-//	override def processElement2(in2: FlsRecord, context: CoProcessFunction[SdcRaw, FlsRecord, SdcEnriched]#Context, collector: Collector[SdcEnriched]): Unit = {
-//		val mapping = getRuntimeContext.getState(mappingDescriptor)
-//		if (mapping.value == null || mapping.value._3 < in2.metrics_date)
-//			mapping.update((in2.avc_id, in2.cpi, in2.metrics_date))
-//	}
-//}

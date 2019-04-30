@@ -15,6 +15,7 @@ import org.apache.flink.util.Collector
   */
 class NosyncCandicateFilter extends RichCoFlatMapFunction[SdcCombined, ((String, String), Boolean), SdcCompact] {
 	val candidateStateDescriptor = new ValueStateDescriptor[Boolean]("NoSyncEnabled", classOf[Boolean])
+	candidateStateDescriptor.setQueryable("NoSyncMonitorEnabled")
 
 	override def flatMap1(in1: SdcCombined, collector: Collector[SdcCompact]): Unit = {
 		val cachedState = getRuntimeContext.getState(candidateStateDescriptor)

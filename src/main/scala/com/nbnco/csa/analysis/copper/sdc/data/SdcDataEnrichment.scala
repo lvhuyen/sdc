@@ -6,8 +6,8 @@ package com.nbnco.csa.analysis.copper.sdc.data
 case class SdcDataEnrichment(ts: Long,
 							 avc: String,
 							 cpi: String,
-							 corrAttndrDs: Integer,
-							 corrAttndrUs: Integer) {
+							 corrAttndrDs: Int,
+							 corrAttndrUs: Int) {
 	def toMap: Map[String, Any] = {
 		Map (
 			"enrich_timestamp" -> System.currentTimeMillis(),

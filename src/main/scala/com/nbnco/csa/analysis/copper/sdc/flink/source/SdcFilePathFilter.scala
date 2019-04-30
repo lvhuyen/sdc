@@ -6,6 +6,8 @@ import org.apache.flink.api.common.io.FilePathFilter
 import org.apache.flink.core.fs.Path
 import org.slf4j.LoggerFactory
 
+import scala.util.Try
+
 /**
   * Created by Huyen on 9/9/18.
   */
@@ -15,38 +17,29 @@ object SdcFilePathFilter {
 }
 
 class SdcFilePathFilter(lookBackPeriod: Long) extends FilePathFilter {
-	private val TIME_FORMAT = new java.text.SimpleDateFormat("yyyyMMdd HHmm")
-	TIME_FORMAT.setTimeZone(TimeZone.getTimeZone("UTC"))
+	private val FILENAME_PATTERN = """.*(\d{4}-\d{2}-\d{2}-\d{2}-\d{2}).tar.gz$""".r
+	private val FILENAME_DATE_FORMAT = new java.text.SimpleDateFormat("yyyy-MM-dd-HH-mm")
+	FILENAME_DATE_FORMAT.setTimeZone(java.util.TimeZone.getTimeZone("UTC"))
 
+	private val DIRNAME_PATTERN = """^(\d{8})$""".r
+	private val DIRNAME_DATE_FORMAT = new java.text.SimpleDateFormat("yyyyMMdd")
+	DIRNAME_DATE_FORMAT.setTimeZone(java.util.TimeZone.getTimeZone("UTC"))
+
+	val lookBackPeriodWithMargin = lookBackPeriod + 86400000L
+
+	/**
+	  * Ignore this file if it ends with tar.gz and in the right format and is older than `lookBackPeriod` from now
+	 */
 	override def filterPath(filePath: Path): Boolean = {
 		filePath == null ||
 				filePath.getName.startsWith(".") ||
 				filePath.getName.startsWith("_") ||
-				filePath.getName.contains(FilePathFilter.HADOOP_COPYING)
+				filePath.getName.contains(FilePathFilter.HADOOP_COPYING) ||
+				Try(DIRNAME_PATTERN.findFirstMatchIn(filePath.getName)
+						.exists(r => DIRNAME_DATE_FORMAT.parse(r.group(1)).getTime < new Date().getTime - lookBackPeriodWithMargin))
+						.toOption.getOrElse(false) ||
+				Try(FILENAME_PATTERN.findFirstMatchIn(filePath.getName)
+						.exists(r => FILENAME_DATE_FORMAT.parse(r.group(1)).getTime < new Date().getTime - lookBackPeriod))
+						.toOption.getOrElse(false)
 	}
 }
-
-//				{
-//					try {
-//						val fileStatus = filePath.getFileSystem.getFileStatus(filePath)
-//						if (!fileStatus.isDir) {
-//							fileStatus.getLen == 0
-//						} else {
-//							(filePath.depth() == homeDepth + 2) && {
-//									val paths = filePath.getPath.split('/')
-//									SdcFilePathFilter.TIME_FORMAT.parse(s"${paths(paths.length - 2)} ${paths(paths.length - 1)}").getTime <
-//											new Date().getTime - lookBackPeriod
-//							}
-//						}
-//					} catch {
-//						case _: java.text.ParseException =>
-//							SdcFilePathFilter.LOG.warn("Invalid path format: {}. Still read.", filePath.getPath)
-//							false
-//						case _: java.io.IOException =>
-//							SdcFilePathFilter.LOG.warn("Error listing file: {}. Ignored.", filePath.getPath)
-//							true
-//								case e: Throwable =>
-//									SdcFilePathFilter.LOG.warn("Unknown exception happens while checking folder eligibility: {}", e.getStackTrace)
-//									true
-//					}
-//				}

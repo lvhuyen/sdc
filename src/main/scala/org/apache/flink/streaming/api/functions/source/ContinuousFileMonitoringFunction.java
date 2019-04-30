@@ -479,11 +479,11 @@ public class ContinuousFileMonitoringFunction<OUT>
         // even if readConsistencyOffset is changed to a large value after a restore from checkpoint,
         // so  files would be processed twice
         long currentMaxModificationTime = maxProcessedTime - readConsistencyOffset;
-        if (currentMaxModificationTime > globalModificationTime) {
-            LOG.info("{} has globalModificationTime advanced from {} to {}",
-                    path, globalModificationTime, currentMaxModificationTime);
-            globalModificationTime = currentMaxModificationTime;
-        }
+//        if (currentMaxModificationTime > globalModificationTime) {
+//            LOG.info("{} has globalModificationTime advanced from {} to {}",
+//                    path, globalModificationTime, currentMaxModificationTime);
+//            globalModificationTime = currentMaxModificationTime;
+//        }
 //        globalModificationTime = Math.max(maxProcessedTime - readConsistencyOffset, globalModificationTime);
 //        LOG.info("{} has current globalModificationTime of {}", path, globalModificationTime);
 

@@ -1,10 +1,12 @@
 package com.nbnco.csa.analysis.copper.sdc.data
 
+import java.lang.{Boolean => JBool, Long => JLong, Short => JShort, Float => JFloat}
+
 import org.apache.avro.Schema
 import org.apache.avro.generic.IndexedRecord
 import org.apache.flink.api.common.typeinfo.TypeInformation
 
-import scala.util.{Failure, Success, Try}
+import scala.util.Try
 
 /**
   * Created by Huyen on 17/8/18.
@@ -32,31 +34,31 @@ case class SdcCombined(ts: Long, dslam: String, port: String,
 
     override def get(i: Int): AnyRef = {
         i match {
-            case 0 => ts.asInstanceOf[AnyRef]
+            case 0 => ts: JLong
             case 1 => dslam
             case 2 => port
-            case 3 => dataI.ifAdminStatus
-            case 4 => dataI.ifOperStatus
-            case 5 => dataI.actualDs
-            case 6 => dataI.actualUs
-            case 7 => dataI.attndrDs
-            case 8 => dataI.attndrUs
+            case 3 => dataI.ifAdminStatus: JBool
+            case 4 => dataI.ifOperStatus: JBool
+            case 5 => dataI.actualDs: Integer
+            case 6 => dataI.actualUs: Integer
+            case 7 => dataI.attndrDs: Integer
+            case 8 => dataI.attndrUs: Integer
             case 9 => dataI.attenuationDs.map(_/10.0f: JFloat).orNull
             case 10 => dataI.userMacAddress
-            case 11 => dataH.map(_.ses).orNull
-            case 12 => dataH.map(_.uas).orNull
-            case 13 => dataH.map(_.lprFe).orNull
-            case 14 => dataH.map(_.sesFe).orNull
-			case 15 => dataH.map(_.reInit).orNull
-            case 16 => dataH.map(_.unCorrDtuDs).orNull
-            case 17 => dataH.map(_.unCorrDtuUs).orNull
-            case 18 => dataH.map(_.reTransUs).orNull
-            case 19 => dataH.map(_.reTransDs).orNull
-            case 20 => enrich.map(_.ts.asInstanceOf[AnyRef]).orNull
+            case 11 => dataH.map(_.ses: JShort).orNull
+            case 12 => dataH.map(_.uas: JShort).orNull
+            case 13 => dataH.map(_.lprFe: JShort).orNull
+            case 14 => dataH.map(_.sesFe: JShort).orNull
+			case 15 => dataH.map(_.reInit: JShort).orNull
+            case 16 => dataH.map(_.unCorrDtuDs: JLong).orNull
+            case 17 => dataH.map(_.unCorrDtuUs: JLong).orNull
+            case 18 => dataH.map(_.reTransUs: JLong).orNull
+            case 19 => dataH.map(_.reTransDs: JLong).orNull
+            case 20 => enrich.map(_.ts: JLong).orNull
             case 21 => enrich.map(_.avc).orNull
             case 22 => enrich.map(_.cpi).orNull
-            case 23 => enrich.map(_.corrAttndrDs).orNull
-            case 24 => enrich.map(_.corrAttndrUs).orNull
+            case 23 => enrich.map(_.corrAttndrDs: Integer).orNull
+            case 24 => enrich.map(_.corrAttndrUs: Integer).orNull
         }
     }
 

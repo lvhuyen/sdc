@@ -3,12 +3,12 @@ package com.nbnco.csa.analysis.copper.sdc.data
 /**
   * Created by Huyen on 30/9/18.
   */
-case class SdcDataInstant(ifAdminStatus: JBool,
-                          ifOperStatus: JBool,
-                          actualDs: Integer,
-                          actualUs: Integer,
-                          attndrDs: Integer,
-                          attndrUs: Integer,
+case class SdcDataInstant(ifAdminStatus: Boolean,
+                          ifOperStatus: Boolean,
+                          actualDs: Int,
+                          actualUs: Int,
+                          attndrDs: Int,
+                          attndrUs: Int,
                           attenuationDs: Option[Short],
                           userMacAddress: String
                          ) {
@@ -20,7 +20,7 @@ case class SdcDataInstant(ifAdminStatus: JBool,
             "xdslChannelActualNetDataRateUpstream" -> actualUs,
             "xdslFarEndChannelAttainableNetDataRateDownstream" -> attndrDs,
             "xdslChannelAttainableNetDataRateUpstream" -> attndrUs,
-            "xdslFarEndLineLoopAttenuationDownstream" -> attenuationDs.map(_/10.0f: JFloat).orNull,
+            "xdslFarEndLineLoopAttenuationDownstream" -> attenuationDs.map(_/10.0f).orNull,
             "macaddress" -> userMacAddress
         )
     }
