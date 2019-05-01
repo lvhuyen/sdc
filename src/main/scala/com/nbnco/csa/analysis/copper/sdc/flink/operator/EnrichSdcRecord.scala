@@ -75,7 +75,7 @@ class EnrichSdcRecord extends KeyedBroadcastProcessFunction[(String, String), Co
 				collector.collect(
 					if (cachedEnrichmentData != null) {
 						val techType = cachedEnrichmentData.getOrElse(EnrichmentAttributeName.TECH_TYPE, TechType.NotSupported).asInstanceOf[TechType.TechType]
-						val atten365: Short = cachedEnrichmentData.getOrElse(EnrichmentAttributeName.ATTEN365, -1: Short).asInstanceOf[Short]
+						val atten365 = cachedEnrichmentData.getOrElse(EnrichmentAttributeName.ATTEN365, -1: Short).asInstanceOf[Short]
 						val dpboProfile = cachedEnrichmentData.getOrElse(EnrichmentAttributeName.DPBO_PROFILE, -1: Byte).asInstanceOf[Byte]
 						val tier_ds = cachedEnrichmentData.getOrElse(EnrichmentAttributeName.TC4_DS, "").asInstanceOf[String]
 						val tier_us = cachedEnrichmentData.getOrElse(EnrichmentAttributeName.TC4_US, "").asInstanceOf[String]
