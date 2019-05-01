@@ -41,7 +41,7 @@ object EnrichmentRecord {
 				else
 					(raw.max_additional_noise_margin_ds.toFloat.toShort, raw.max_additional_noise_margin_us.toFloat.toShort)
 
-			EnrichmentRecord(Long.MinValue,
+			EnrichmentRecord(raw.metrics_timestamp.getTime,
 				raw.dslam,
 				regexFeatureSetPort.replaceFirstIn(raw.port, "R$1.S$2.LT$3.P$4"),
 				Map(
@@ -62,7 +62,7 @@ object EnrichmentRecord {
 	def apply(raw: PojoChronosFeatureSetFloat): EnrichmentRecord = {
 		try {
 			val (dslam, port) = raw.id.span(_ != ':')
-			EnrichmentRecord(Long.MinValue, dslam, regexFeatureSetPort.replaceFirstIn(port.drop(1), "R$1.S$2.LT$3.P$4"),
+			EnrichmentRecord(raw.metrics_timestamp.getTime, dslam, regexFeatureSetPort.replaceFirstIn(port.drop(1), "R$1.S$2.LT$3.P$4"),
 				Map(EnrichmentAttributeName.ATTEN365 -> raw.value))
 		} catch {
 			case _: Throwable =>

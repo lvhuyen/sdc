@@ -84,6 +84,7 @@ object StreamingSdc {
 				.map(RawFls(_))
 				.filter(!_.equals(RawFls.UNKNOWN))
 				.name("FLS parquet")
+				.assignTimestampsAndWatermarks(EnrichmentRecordTimeExtractorForIdleSources[RawFls])
 
 		// Read AMS Data
 		val fifAmsParquet = new ChronosParquetFileInputFormat[PojoAms](new Path(cfgAmsParquetLocation), createTypeInformation[PojoAms])
@@ -98,6 +99,7 @@ object StreamingSdc {
 				.filter(r => r.dslam != null && !r.dslam.isEmpty)
 				.filter(r => r.uni_prid != null && r.uni_prid.startsWith("UNI"))
 				.name("AMS parquet")
+				.assignTimestampsAndWatermarks(EnrichmentRecordTimeExtractorForIdleSources[RawAms])
 
 		// Join AMS with FLS
 		val streamAmsFlsParquet = streamAmsParquet.connect(streamFlsParquet)
@@ -120,6 +122,7 @@ object StreamingSdc {
         		.filter(!_.rtx_attainable_net_data_rate_ds.equals("0.0"))
 				.map(EnrichmentRecord(_))
 				.name("Nac parquet")
+				.assignTimestampsAndWatermarks(EnrichmentRecordTimeExtractorForIdleSources[EnrichmentRecord])
 
 		// Read Atten375 Data from Feature Set
 		val cfgChronosFeatureSetLocation = appConfig.get("sources.float-featureset-parquet.path", "s3://assn-csa-prod-telemetry-data-lake/PROD/FEATURES/fttxFeatureSet/valType=float/")
@@ -135,12 +138,13 @@ object StreamingSdc {
 				.uid(OperatorId.SOURCE_ATTEN375_RAW)
 				.map(EnrichmentRecord(_))
 				.name("Atten375 parquet")
+				.assignTimestampsAndWatermarks(EnrichmentRecordTimeExtractorForIdleSources[EnrichmentRecord])
 
 		return streamAmsFlsParquet
 				.union(streamNacParquet).union(streamAtten375Parquet)
 	}
 
-	def readPercentilesTable(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment) = {
+	def readPercentilesTable(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): DataStream[(String, List[java.lang.Float])] = {
 		val cfgEnrichmentScanInterval = appConfig.getLong("sources.enrichment.scan-interval", 60000L)
 		val cfgEnrichmentIgnoreOlderThan = appConfig.getLong("sources.enrichment.ignore-files-older-than-days", 1)
 		val cfgPctlsJsonLocation = appConfig.get("sources.percentiles-json.path", "s3://assn-csa-prod-telemetry-data-lake/PROD/REFERENCE/AttNDRPercentilesLatest/")
@@ -154,6 +158,7 @@ object StreamingSdc {
 				.setParallelism(1)
 				.uid(OperatorId.SOURCE_PERCENTILES_RAW)
 				.flatMap(new ParsePercentilesRecord())
+				.assignTimestampsAndWatermarks(ProcessingTimeExtractorForIdleSources[(String, List[java.lang.Float])])
 		streamPctls
 	}
 
@@ -246,8 +251,8 @@ object StreamingSdc {
 		if (debug) {
 			streamSdcEnriched.print()
 			NoSync(streamSdcEnriched.filter(_.port == "R1.S1.LT1.P3").map(SdcCompact(_))
-					.assignTimestampsAndWatermarks(SdcRecordTimeAssigner[SdcCompact])
-					.keyBy(r => (r.dslam, r.port)), 3, 2, 6).print()
+//					.assignTimestampsAndWatermarks(SdcRecordTimeAssigner[SdcCompact])
+					.keyBy(r => (r.dslam, r.port)), 3, 2, 7).print()
 		}
 
 		/** Handling Nosync */

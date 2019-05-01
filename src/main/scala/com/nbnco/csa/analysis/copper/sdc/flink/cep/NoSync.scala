@@ -26,9 +26,7 @@ object NoSync {
 				.times(numberOfReInitMeasurements - numberOfOperUpMeasurements).consecutive()
         		.next("statusCheck")
 				.where((value: SdcCompact, ctx: CepContext[SdcCompact]) =>
-					accSum(_.reInit, Seq("reInitCheck", "statusCheck"), value, ctx) < maxReInitCount &&
-							value.ifOperStatus
-				)
+					accSum(_.reInit, Seq("reInitCheck", "statusCheck"), value, ctx) < maxReInitCount && value.ifOperStatus )
 				.times(numberOfOperUpMeasurements).consecutive()
 
 		collectPattern(input, patternLineIsUp)

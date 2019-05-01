@@ -84,8 +84,8 @@ object ReadAndCombineRawSdcFiles {
 				.uid(OperatorId.SOURCE_SDC_INSTANT + "_v0")
 				.name("Read SDC Instant")
 
-		val streamDslamFull: DataStream[IntermediateDataType] = streamDslamH.assignTimestampsAndWatermarks(SdcRecordTimeAssigner[IntermediateDataType])
-				.union(streamDslamI.assignTimestampsAndWatermarks(SdcRecordTimeAssigner[IntermediateDataType]))
+		val streamDslamFull: DataStream[IntermediateDataType] = streamDslamH.assignTimestampsAndWatermarks(SdcRecordTimeExtractor[IntermediateDataType])
+				.union(streamDslamI.assignTimestampsAndWatermarks(SdcRecordTimeExtractor[IntermediateDataType]))
 
 		val outputTagUnmatched = OutputTag[IntermediateDataType]("unmatched dslam record")
 		val streamDslamMerged = streamDslamFull.keyBy(_.name)
@@ -139,8 +139,8 @@ object ReadAndCombineRawSdcFiles {
 				.uid(OperatorId.SOURCE_SDC_INSTANT)
 				.name("Read SDC Instant")
 
-		val streamDslamFull: DataStream[IntermediateDataType] = streamDslamH.assignTimestampsAndWatermarks(SdcRecordTimeAssigner[IntermediateDataType])
-				.union(streamDslamI.assignTimestampsAndWatermarks(SdcRecordTimeAssigner[IntermediateDataType]))
+		val streamDslamFull: DataStream[IntermediateDataType] = streamDslamH.assignTimestampsAndWatermarks(SdcRecordTimeExtractor[IntermediateDataType])
+				.union(streamDslamI.assignTimestampsAndWatermarks(SdcRecordTimeExtractor[IntermediateDataType]))
 
 		val outputTagUnmatched = OutputTag[IntermediateDataType]("unmatched dslam record")
 		val outputTagMetadata = OutputTag[DslamRaw[None.type]]("dslam metadata record")

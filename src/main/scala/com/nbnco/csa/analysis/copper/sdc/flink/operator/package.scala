@@ -1,7 +1,9 @@
 package com.nbnco.csa.analysis.copper.sdc.flink
 
-import com.nbnco.csa.analysis.copper.sdc.data.TemporalEvent
+import com.nbnco.csa.analysis.copper.sdc.data.{EnrichmentData, TemporalEvent}
+import org.apache.flink.streaming.api.functions.AssignerWithPeriodicWatermarks
 import org.apache.flink.streaming.api.functions.timestamps.{AscendingTimestampExtractor, BoundedOutOfOrdernessTimestampExtractor}
+import org.apache.flink.streaming.api.watermark.Watermark
 import org.apache.flink.streaming.api.windowing.time.Time
 
 /**
@@ -42,16 +44,23 @@ package object operator {
 		val SDC_PARSER_INSTANT = "Sdc_Parser_Instant"
 	}
 
-	object SdcRecordTimeAssigner {
-		def apply[Type <: TemporalEvent]: SdcRecordTimeAssigner[Type] = new SdcRecordTimeAssigner[Type]()
+	object SdcRecordTimeExtractor {
+		def apply[Type <: TemporalEvent] = new BoundedOutOfOrdernessTimestampExtractor[Type](Time.milliseconds(0)) {
+			override def extractTimestamp(t: Type): Long = t.ts
+		}
 	}
 
-	class SdcRecordTimeAssigner[Type <: TemporalEvent]
-			extends BoundedOutOfOrdernessTimestampExtractor[Type](Time.milliseconds(0)) {
-		override def extractTimestamp(t: Type): Long = t.ts
+	object EnrichmentRecordTimeExtractorForIdleSources {
+		def apply[Type <: TemporalEvent] = new AssignerWithPeriodicWatermarks[Type] {
+			override def getCurrentWatermark: Watermark = Watermark.MAX_WATERMARK
+			override def extractTimestamp(t: Type, prevT: Long): Long = t.ts
+		}
 	}
-//	class SdcRecordTimeAssigner[Type <: TemporalEvent]
-//			extends AscendingTimestampExtractor[Type] {
-//		override def extractAscendingTimestamp(record: Type): Long = record.ts
-//	}
+
+	object ProcessingTimeExtractorForIdleSources {
+		def apply[Type] = new AssignerWithPeriodicWatermarks[Type] {
+			override def getCurrentWatermark: Watermark = Watermark.MAX_WATERMARK
+			override def extractTimestamp(t: Type, prevT: Long): Long = new java.util.Date().getTime
+		}
+	}
 }
