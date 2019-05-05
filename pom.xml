@@ -58,8 +58,8 @@ under the License.
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<flink.version>1.8.0</flink.version>
 		<hadoop.version>2.8.5</hadoop.version>
-		<scala.binary.version>2.11</scala.binary.version>
-		<scala.version>2.11.12</scala.version>
+		<scala.binary.version>2.12</scala.binary.version>
+		<scala.version>2.12.7</scala.version>
 		<maven.scope>provided</maven.scope>
 	</properties>
 
@@ -134,17 +134,14 @@ under the License.
 		</dependency>
 		<dependency>
 			<groupId>org.apache.flink</groupId>
-			<artifactId>flink-connector-kinesis_2.11</artifactId>
+			<artifactId>flink-connector-kinesis_${scala.binary.version}</artifactId>
 			<version>${flink.version}</version>
-			<scope>${maven.scope}</scope>
 		</dependency>
-		<!--
 		<dependency>
 			<groupId>org.apache.flink</groupId>
-			<artifactId>flink-connector-kafka-0.10_${scala.binary.version}</artifactId>
+			<artifactId>flink-connector-kafka_${scala.binary.version}</artifactId>
 			<version>${flink.version}</version>
 		</dependency>
-		-->
 		<dependency>
 			<groupId>org.elasticsearch.client</groupId>
 			<artifactId>elasticsearch-rest-high-level-client</artifactId>
@@ -172,13 +169,13 @@ under the License.
 			<groupId>org.apache.flink</groupId>
 			<artifactId>flink-table-api-scala-bridge_${scala.binary.version}</artifactId>
 			<version>${flink.version}</version>
-            <scope>${maven.scope}</scope>
+			<scope>${maven.scope}</scope>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.flink</groupId>
 			<artifactId>flink-table-common</artifactId>
 			<version>${flink.version}</version>
-            <scope>${maven.scope}</scope>
+			<scope>${maven.scope}</scope>
 		</dependency>
 		<!-- Add logging framework, to produce console output when running in the IDE. -->
 		<!-- These dependencies are excluded from the application JAR by default. -->
@@ -257,7 +254,7 @@ under the License.
 			<plugin>
 				<groupId>net.alchim31.maven</groupId>
 				<artifactId>scala-maven-plugin</artifactId>
-				<version>3.2.2</version>
+				<version>3.4.6</version>
 				<executions>
 					<execution>
 						<goals>
@@ -270,7 +267,7 @@ under the License.
 					<jvmArgs>
 						<jvmArg>-Xms256m</jvmArg>
 						<jvmArg>-Xmx1024m</jvmArg>
-                        <jvmArg>-Xss2048K</jvmArg>
+                        <jvmArg>-Xss2m</jvmArg>
 					</jvmArgs>
 					<!--<args>-->
 						<!--<arg>-deprecation</arg>-->
@@ -369,9 +366,15 @@ under the License.
 					<version>${flink.version}</version>
 					<scope>compile</scope>
 				</dependency>
+				<!--<dependency>-->
+					<!--<groupId>org.apache.flink</groupId>-->
+					<!--<artifactId>flink-table</artifactId>-->
+					<!--<version>${flink.version}</version>-->
+					<!--<scope>compile</scope>-->
+				<!--</dependency>-->
 				<dependency>
 					<groupId>org.apache.flink</groupId>
-					<artifactId>flink-table</artifactId>
+					<artifactId>flink-table-planner_${scala.binary.version}</artifactId>
 					<version>${flink.version}</version>
 					<scope>compile</scope>
 				</dependency>
@@ -412,6 +415,16 @@ under the License.
                     <artifactId>hadoop-client</artifactId>
                     <version>${hadoop.version}</version>
                 </dependency>
+				<dependency>
+					<groupId>org.apache.flink</groupId>
+					<artifactId>flink-connector-kinesis_${scala.binary.version}</artifactId>
+					<version>${flink.version}</version>
+				</dependency>
+				<dependency>
+					<groupId>org.apache.flink</groupId>
+					<artifactId>flink-connector-kafka_${scala.binary.version}</artifactId>
+					<version>${flink.version}</version>
+				</dependency>
 			</dependencies>
 		</profile>
 	</profiles>

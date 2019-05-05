@@ -30,7 +30,8 @@ object ReadHistoricalDataFromES {
 	private val LOG: Logger = LoggerFactory.getLogger(classOf[ReadHistoricalDataFromES])
 	private val EsConnectTimeout: Int = 10000
 	private val EsSocketTimeout: Int = 5000
-	private val AsyncQueueCapacity: Int = 100
+	private val AsyncQueueCapacity: Int = 4
+	private val Parallelism: Int = 2
 
 	object FieldName {
 		val TS = "metrics_timestamp"
@@ -69,13 +70,17 @@ object ReadHistoricalDataFromES {
 		//  Read Async. Adding 5 seconds to the timeout so this Async function would never timeout
 		val streamEsSearchResponse = AsyncDataStream.unorderedWait(streamInput,
 			new ReadHistoricalDataFromES(esServerUrl, indexName, docType, maxNumberOfRecordsToRead, esQueryTimeoutInSeconds), esQueryTimeoutInSeconds + 5, TimeUnit.SECONDS, AsyncQueueCapacity)
+        		.setParallelism(Parallelism)
 
 		val noSyncCandidatePhysicalRef = OutputTag[((String, String), Boolean)]("NoSyncTogglePhysicalRef")
 		val toRetryCandidateLogicalRef = OutputTag[(String, Boolean)]("NoSyncToggleRetry")
 
-		val streamEsData = streamEsSearchResponse.process(new ParseEsQueryResult(noSyncCandidatePhysicalRef, toRetryCandidateLogicalRef))
+		val streamEsData: DataStream[SdcCompact] =
+			streamEsSearchResponse.process(new ParseEsQueryResult(noSyncCandidatePhysicalRef, toRetryCandidateLogicalRef))
 
-		(streamEsData, streamEsData.getSideOutput(noSyncCandidatePhysicalRef), streamEsData.getSideOutput(toRetryCandidateLogicalRef))
+		(streamEsData.assignTimestampsAndWatermarks(SdcRecordTimeExtractor[SdcCompact]),
+				streamEsData.getSideOutput(noSyncCandidatePhysicalRef),
+				streamEsData.getSideOutput(toRetryCandidateLogicalRef))
 	}
 
 	/**
@@ -98,7 +103,7 @@ object ReadHistoricalDataFromES {
 					if (searchResponse.status == RestStatus.OK && searchResponse.getHits.totalHits > 0) {
 						if (raw._2) {
 							/** Only in case the flag is "on": parse the results into SdcCompact */
-							searchResponse.getHits.getHits.foreach(r =>
+							searchResponse.getHits.getHits.reverseIterator.foreach(r =>
 								Try(SdcCompact(r.getSortValues.head.asInstanceOf[Long], raw._1, r.getSourceAsMap.asScala)) match {
 									case Success(sdcCompact) => collector.collect(sdcCompact)
 									case Failure(e) =>

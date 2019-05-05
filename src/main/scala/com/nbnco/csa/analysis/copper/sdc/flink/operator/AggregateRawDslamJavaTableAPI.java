@@ -54,29 +54,3 @@ public class AggregateRawDslamJavaTableAPI extends AggregateFunction<DslamCompac
         return ret;
     }
 }
-//
-//
-//class AggregateRawDslamScala extends AggregateFunction[DslamCompactWithType, DslamCompactWithType] {
-//
-//        override def createAccumulator(): DslamCompactWithType = {
-//        new DslamCompactWithType(0: Byte, 0L, "", "", Map.empty)
-//        }
-//
-//        override def getValue(acc: DslamCompactWithType): DslamCompactWithType = acc
-//
-//        // isInstant, ts, name, columns, data
-//        def accumulate(acc: DslamCompactWithType, in: DslamCompactWithType) = {
-//        if (acc.f0 == 3 || acc.f0 == in.f0) {
-//        //Raise exception here
-//        throw InvalidDataException(s"Duplicated data in $DslamMetadata, ${in.f0} at ${in.f1}")
-//        } else {
-//        val (c, r) = MergeCsv(acc.f3, acc.f4, in.f3, in.f4)
-//        acc.f0 += in.f0
-//        acc.f1 = in.f1
-//        acc.f2 = in.f2
-//        acc.f3 = c
-//        acc.f4 = r
-//        }
-//        }
-//        }
-

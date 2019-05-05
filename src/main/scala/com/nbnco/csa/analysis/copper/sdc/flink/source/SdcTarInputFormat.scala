@@ -140,13 +140,6 @@ class SdcTarInputFormat(filePath: Path, metricsPrefix: String, truncatePathWhile
 			// cache the data which helps parsing records faster
 			val metricsTime = this.METRICS_DATE_FORMAT.parse(headers("Time stamp")).getTime
 
-			// Validate data timestamp and filename timestamp
-			// todo: enable this check if needed
-//			val fileNameTs = this.FILENAME_DATE_FORMAT.parse(this.fileName.getName.substring(0, 15))
-//			if (scala.math.abs(fileNameTs.getTime - metricsTime) > SdcTarInputFormat.MAX_TIME_DIFF) {
-//				throw InvalidDataException(s"Abnormal timestamps: in data $metricsTime vs. in filename $fileNameTs")
-//			}
-
 			// Update metrics for time arrival delay
 			if (this.fileModTime != SdcTarInputFormat.FILE_MOD_TIME_UNKNOWN) {
 				this.DELAY_HISTOGRAM.update((this.fileModTime - metricsTime) / 1000)

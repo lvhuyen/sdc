@@ -13,7 +13,7 @@ import org.apache.flink.util.Collector
   * This function filters the 1st input stream SdcCombined using data from 2nd stream ((dslam, port), flag)
   * The output is a stream of SdcCompact (a trimmed version of SdcCombined to save memory space)
   */
-class NosyncCandicateFilter extends RichCoFlatMapFunction[SdcCombined, ((String, String), Boolean), SdcCompact] {
+class NosyncCandidateFilter extends RichCoFlatMapFunction[SdcCombined, ((String, String), Boolean), SdcCompact] {
 	val candidateStateDescriptor = new ValueStateDescriptor[Boolean]("NoSyncEnabled", classOf[Boolean])
 	candidateStateDescriptor.setQueryable("NoSyncMonitorEnabled")
 

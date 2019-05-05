@@ -11,6 +11,7 @@
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
+    <orderEntry type="library" name="scala-sdk-2.12.7" level="application" />
     <orderEntry type="library" name="Maven: org.apache.flink:flink-scala_2.12:1.8.0" level="project" />
     <orderEntry type="library" name="Maven: org.apache.flink:flink-core:1.8.0" level="project" />
     <orderEntry type="library" name="Maven: org.apache.flink:flink-annotations:1.8.0" level="project" />
@@ -114,11 +115,11 @@
     <orderEntry type="library" scope="PROVIDED" name="Maven: org.apache.flink:flink-s3-fs-hadoop:1.8.0" level="project" />
     <orderEntry type="library" name="Maven: org.apache.flink:flink-statebackend-rocksdb_2.12:1.8.0" level="project" />
     <orderEntry type="library" name="Maven: com.data-artisans:frocksdbjni:5.17.2-artisans-1.0" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="Maven: org.apache.flink:flink-connector-kinesis_2.11:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-connector-kinesis_2.12:1.8.0" level="project" />
     <orderEntry type="library" name="Maven: com.google.guava:guava:18.0" level="project" />
     <orderEntry type="library" name="Maven: commons-io:commons-io:2.4" level="project" />
     <orderEntry type="library" name="Maven: commons-codec:commons-codec:1.10" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="Maven: software.amazon.ion:ion-java:1.0.2" level="project" />
+    <orderEntry type="library" name="Maven: software.amazon.ion:ion-java:1.0.2" level="project" />
     <orderEntry type="library" name="Maven: com.fasterxml.jackson.core:jackson-databind:2.6.7.1" level="project" />
     <orderEntry type="library" name="Maven: com.fasterxml.jackson.core:jackson-annotations:2.6.0" level="project" />
     <orderEntry type="library" name="Maven: com.fasterxml.jackson.core:jackson-core:2.6.7" level="project" />
@@ -126,6 +127,10 @@
     <orderEntry type="library" name="Maven: joda-time:joda-time:2.5" level="project" />
     <orderEntry type="library" name="Maven: commons-lang:commons-lang:2.6" level="project" />
     <orderEntry type="library" name="Maven: commons-logging:commons-logging:1.1.3" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-connector-kafka_2.12:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-connector-kafka-base_2.12:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.kafka:kafka-clients:2.0.1" level="project" />
+    <orderEntry type="library" name="Maven: org.lz4:lz4-java:1.4.1" level="project" />
     <orderEntry type="library" name="Maven: org.elasticsearch.client:elasticsearch-rest-high-level-client:6.2.4" level="project" />
     <orderEntry type="library" name="Maven: org.elasticsearch:elasticsearch:6.2.4" level="project" />
     <orderEntry type="library" name="Maven: org.elasticsearch:elasticsearch-core:6.2.4" level="project" />
@@ -170,15 +175,14 @@
     <orderEntry type="library" name="Maven: org.json4s:json4s-core_2.12:3.6.3" level="project" />
     <orderEntry type="library" name="Maven: org.json4s:json4s-ast_2.12:3.6.3" level="project" />
     <orderEntry type="library" name="Maven: org.json4s:json4s-scalap_2.12:3.6.3" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="Maven: org.apache.flink:flink-table-planner_2.12:1.8.0" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="Maven: org.apache.flink:flink-table-api-java-bridge_2.12:1.8.0" level="project" />
-    <orderEntry type="library" scope="PROVIDED" name="Maven: org.apache.flink:flink-table-api-java:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-table-planner_2.12:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-table-api-java-bridge_2.12:1.8.0" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-table-api-java:1.8.0" level="project" />
     <orderEntry type="library" scope="PROVIDED" name="Maven: org.apache.flink:flink-table-api-scala-bridge_2.12:1.8.0" level="project" />
     <orderEntry type="library" scope="PROVIDED" name="Maven: org.apache.flink:flink-table-api-scala_2.12:1.8.0" level="project" />
     <orderEntry type="library" scope="PROVIDED" name="Maven: org.apache.flink:flink-table-common:1.8.0" level="project" />
     <orderEntry type="library" scope="RUNTIME" name="Maven: org.slf4j:slf4j-log4j12:1.7.7" level="project" />
     <orderEntry type="library" scope="RUNTIME" name="Maven: log4j:log4j:1.2.17" level="project" />
-    <orderEntry type="library" name="Maven: org.apache.flink:flink-table:1.8.0" level="project" />
     <orderEntry type="library" name="Maven: org.apache.flink:flink-runtime-web_2.12:1.8.0" level="project" />
     <orderEntry type="library" name="Maven: org.apache.flink:flink-runtime_2.12:1.8.0" level="project" />
     <orderEntry type="library" name="Maven: org.apache.flink:flink-queryable-state-client-java_2.12:1.8.0" level="project" />

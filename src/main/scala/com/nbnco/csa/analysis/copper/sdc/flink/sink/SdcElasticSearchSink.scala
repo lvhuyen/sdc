@@ -16,7 +16,7 @@ import org.elasticsearch.action.index.IndexRequest
 import org.elasticsearch.common.util.concurrent.EsRejectedExecutionException
 import org.slf4j.LoggerFactory
 
-import scala.collection.JavaConverters.mapAsJavaMap
+import scala.collection.JavaConversions._
 
 /**
   * Created by Huyen on 19/9/18.

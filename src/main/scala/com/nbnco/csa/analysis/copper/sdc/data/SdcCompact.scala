@@ -2,6 +2,8 @@ package com.nbnco.csa.analysis.copper.sdc.data
 
 import com.nbnco.csa.analysis.copper.sdc.flink.operator.ReadHistoricalDataFromES.FieldName
 
+import scala.util.Try
+
 /**
   * Created by Huyen on 15/4/19.
   */
@@ -16,9 +18,9 @@ object SdcCompact {
             source.getOrElse(FieldName.DSLAM, "").asInstanceOf[String],
             source.getOrElse(FieldName.PORT, "").asInstanceOf[String],
             avc,
-            source.getOrElse(FieldName.LPR, "0").asInstanceOf[String].toShort,
-            source.getOrElse(FieldName.REINIT, "0").asInstanceOf[String].toShort,
-            source.getOrElse(FieldName.UAS, "0").asInstanceOf[String].toShort,
+            Try(source.get(FieldName.LPR).asInstanceOf[String].toShort).toOption,
+            Try(source.get(FieldName.REINIT).asInstanceOf[String].toShort).toOption,
+            Try(source.get(FieldName.UAS).asInstanceOf[String].toShort).toOption,
             source.getOrElse(FieldName.ATTNDRDS,"0").asInstanceOf[String].toInt,
             source.getOrElse(FieldName.ATTNDRUS,"0").asInstanceOf[String].toInt,
             source.getOrElse(FieldName.IFOPERSTATUS,"down").asInstanceOf[String].equals("up")
@@ -30,9 +32,9 @@ object SdcCompact {
             raw.dslam,
             raw.port,
             raw.enrich.map(_.avc).getOrElse("UNKNOWN"),
-            raw.dataH.map(_.lprFe).getOrElse(0),
-            raw.dataH.map(_.reInit).getOrElse(0),
-            raw.dataH.map(_.uas).getOrElse(0),
+            raw.dataH.map(_.lprFe),
+            raw.dataH.map(_.reInit),
+            raw.dataH.map(_.uas),
             raw.dataI.attndrDs,
             raw.dataI.attndrUs,
             raw.dataI.ifOperStatus)
@@ -43,16 +45,16 @@ case class SdcCompact(ts: Long,
                       dslam: String,
                       port: String,
                       avc: String,
-                      lpr: Short,
-                      reInit: Short,
-                      uas: Short,
+                      lpr: Option[Short],
+                      reInit: Option[Short],
+                      uas: Option[Short],
                       attndrDS: Int,
                       attndrUS: Int,
                       ifOperStatus: Boolean) extends TemporalEvent {
 
-    override def toString() = {
-        s"$ts,$dslam,$port,$avc,$lpr,$reInit,$uas,$attndrDS,$attndrUS,$ifOperStatus"
-    }
+//    override def toString() = {
+//        s"$ts,$dslam,$port,$avc,$lpr,$reInit,$uas,$attndrDS,$attndrUS,$ifOperStatus"
+//    }
 
     override def equals(obj: Any): Boolean = {
         obj match {

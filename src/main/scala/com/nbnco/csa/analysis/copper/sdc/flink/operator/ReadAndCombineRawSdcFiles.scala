@@ -1,7 +1,7 @@
 package com.nbnco.csa.analysis.copper.sdc.flink.operator
 import com.nbnco.csa.analysis.copper.sdc.data.DslamType._
 import com.nbnco.csa.analysis.copper.sdc.data._
-import com.nbnco.csa.analysis.copper.sdc.flink.source.{SdcFilePathFilter, SdcTarInputFormat, SdcTarInputFormatLite}
+import com.nbnco.csa.analysis.copper.sdc.flink.source.{SdcFilePathFilter, SdcFiles, SdcTarInputFormat, SdcTarInputFormatLite}
 import org.apache.flink.api.common.state.ValueStateDescriptor
 import org.apache.flink.configuration.Configuration
 import org.apache.flink.core.fs.{FileInputSplit, Path}
@@ -68,16 +68,18 @@ object ReadAndCombineRawSdcFiles {
 
 		type IntermediateDataType = DslamRaw[Map[String, String]]
 
-		val streamDslamH: DataStream[IntermediateDataType] = streamEnv
-				.readFile(fifSdcHistorical,
+		val streamDslamH: DataStream[IntermediateDataType] = SdcFiles
+				.readFile(streamEnv,
+					fifSdcHistorical,
 					cfgSdcHistoricalLocation,
 					FileProcessingMode.PROCESS_CONTINUOUSLY,
 					cfgSdcScanInterval, cfgSdcScanConsistency)
 				.uid(OperatorId.SOURCE_SDC_HISTORICAL + "_v0")
 				.name("Read SDC Historical")
 
-		val streamDslamI: DataStream[IntermediateDataType] = streamEnv
-				.readFile(fifSdcInstant,
+		val streamDslamI: DataStream[IntermediateDataType] = SdcFiles
+				.readFile(streamEnv,
+					fifSdcInstant,
 					cfgSdcInstantLocation,
 					FileProcessingMode.PROCESS_CONTINUOUSLY,
 					cfgSdcScanInterval, cfgSdcScanConsistency)
@@ -123,19 +125,21 @@ object ReadAndCombineRawSdcFiles {
 
 		type IntermediateDataType = DslamRaw[FileInputSplit]
 
-		val streamDslamH: DataStream[IntermediateDataType] = streamEnv
-				.readFile(fifSdcHistorical,
+		val streamDslamH: DataStream[IntermediateDataType] = SdcFiles
+				.readFile(streamEnv, fifSdcHistorical,
 					cfgSdcHistoricalLocation,
 					FileProcessingMode.PROCESS_CONTINUOUSLY,
-					cfgSdcScanInterval, cfgSdcScanConsistency)
+					cfgSdcScanInterval,
+					cfgSdcScanConsistency)
 				.uid(OperatorId.SOURCE_SDC_HISTORICAL)
 				.name("Read SDC Historical")
 
-		val streamDslamI: DataStream[IntermediateDataType] = streamEnv
-				.readFile(fifSdcInstant,
+		val streamDslamI: DataStream[IntermediateDataType] = SdcFiles
+				.readFile(streamEnv, fifSdcInstant,
 					cfgSdcInstantLocation,
 					FileProcessingMode.PROCESS_CONTINUOUSLY,
-					cfgSdcScanInterval, cfgSdcScanConsistency)
+					cfgSdcScanInterval,
+					cfgSdcScanConsistency)
 				.uid(OperatorId.SOURCE_SDC_INSTANT)
 				.name("Read SDC Instant")
 
@@ -242,8 +246,8 @@ object ReadAndCombineRawSdcFiles {
 
 
 	private class ByFileAggregator(sampleFilePath: Path,
-						   unmatchedSideOutput: OutputTag[DslamRaw[FileInputSplit]],
-						   metadataSideOutput: OutputTag[DslamRaw[None.type]])
+								   unmatchedSideOutput: OutputTag[DslamRaw[FileInputSplit]],
+								   metadataSideOutput: OutputTag[DslamRaw[None.type]])
 			extends ProcessWindowFunction [DslamRaw[FileInputSplit], DslamRaw[Map[String, String]], String, TimeWindow] {
 
 		private lazy val reader = new SdcTarInputFormat(sampleFilePath, "")

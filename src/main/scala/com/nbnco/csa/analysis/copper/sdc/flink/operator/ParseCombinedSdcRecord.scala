@@ -20,6 +20,7 @@ object ParseCombinedSdcRecord {
 		inputStream.flatMap(new ParseCombinedSdcRecord)
 				.uid(OperatorId.SDC_PARSER)
 				.name("Parse SDC Records")
+        		.assignTimestampsAndWatermarks(SdcRecordTimeExtractor[SdcCombined])
 	}
 }
 
@@ -47,8 +48,7 @@ class ParseCombinedSdcRecord extends RichFlatMapFunction[DslamRaw[Map[String,Str
 
 			in.data.foreach(line =>
 				try {
-					val tmp = SdcCombined(in.ts, in.name, line._1, line._2, ref)
-					collector.collect(tmp)
+					collector.collect(SdcCombined(in.ts, in.name, line._1, line._2, ref))
 				} catch {
 					case e@(_: java.lang.NumberFormatException | _: InvalidPortFormatException) =>
 						BAD_RECORDS_COUNT.inc()
