@@ -42,14 +42,6 @@ object StreamingSdc {
 					.enableCheckpointing(cfgCheckpointInterval, CheckpointingMode.EXACTLY_ONCE, true)
 			else StreamExecutionEnvironment.getExecutionEnvironment
 
-
-//		val streamEnv =
-//			if (cfgCheckpointEnabled) StreamExecutionEnvironment.getExecutionEnvironment
-//					.setStateBackend(new FsStateBackend(cfgCheckpointLocation, true))
-//					.enableCheckpointing(cfgCheckpointInterval)
-//			else StreamExecutionEnvironment.getExecutionEnvironment
-
-
 		if (cfgCheckpointEnabled) {
 			streamEnv.getCheckpointConfig.setMinPauseBetweenCheckpoints(cfgCheckpointMinPause)
 			streamEnv.getCheckpointConfig.setCheckpointTimeout(cfgCheckpointTimeout)
@@ -268,35 +260,19 @@ object StreamingSdc {
 		val (streamNosyncEsData, streamWatchListFromExternal, streamWatchListRetry) =
 			ReadHistoricalDataFromES(streamNosyncWatchListFromExternalRaw, esUrl, indexName, docType, reInitMonitorPeriod, esQueryTimeout)
 
-//		val streamNoSyncOutput = streamWatchListFromExternal.iterate((watchList: DataStream[((String, String), Boolean)]) => {
-//			val streamNosyncInput = new DataStreamUtils(streamSdcEnriched).reinterpretAsKeyedStream(r => (r.dslam, r.port))
-//					.connect(watchList.keyBy(_._1))
-//					.flatMap(new NosyncCandicateFilter())
-//					.union(streamNosyncEsData.keyBy(r => (r.dslam, r.port)))
-//			val streamNosyncOutput =
-//				NoSync(new DataStreamUtils(streamNosyncInput).reinterpretAsKeyedStream(r => (r.dslam, r.port)),
-//					reInitMonitorPeriod, uasMonitorPeriod,
-//					reInitMonitorThreshold, uasMonitorThreshold)
-//
-//			(streamNosyncOutput.map(r => ((r.dslam, r.port), false)),
-//					streamNosyncOutput)
-//		})
-
-
 		val streamNoSyncOutput = streamWatchListFromExternal.iterate((watchList: DataStream[((String, String), Boolean)]) => {
 			val streamNosyncInput = new DataStreamUtils(streamSdcEnriched).reinterpretAsKeyedStream(r => (r.dslam, r.port))
 					.connect(watchList.keyBy(_._1))
 					.flatMap(new NosyncCandidateFilter())
-					.union(streamNosyncEsData.keyBy(r => (r.dslam, r.port)))
+					.union(streamNosyncEsData.keyBy(r => (r.dslam, r.port)).map(r => r))
 			val streamNosyncOutput =
-				NoSync(streamNosyncInput.keyBy(r => (r.dslam, r.port)),
+				NoSync(new DataStreamUtils(streamNosyncInput).reinterpretAsKeyedStream(r => (r.dslam, r.port)),
 					reInitMonitorPeriod, uasMonitorPeriod,
 					reInitMonitorThreshold, uasMonitorThreshold)
 
 			(streamNosyncOutput.map(r => ((r.dslam, r.port), false)),
 					streamNosyncOutput)
 		})
-
 
 
 

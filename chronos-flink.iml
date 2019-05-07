@@ -205,5 +205,6 @@
     <orderEntry type="library" name="Maven: org.apache.flink:flink-shaded-netty:4.1.32.Final-6.0" level="project" />
     <orderEntry type="library" name="Maven: org.apache.flink:flink-shaded-jackson:2.7.9-6.0" level="project" />
     <orderEntry type="library" name="Maven: org.javassist:javassist:3.19.0-GA" level="project" />
+    <orderEntry type="library" name="Maven: org.apache.flink:flink-queryable-state-runtime_2.12:1.8.0" level="project" />
   </component>
 </module>
