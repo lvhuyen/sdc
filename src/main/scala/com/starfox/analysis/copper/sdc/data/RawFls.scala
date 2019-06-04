@@ -15,6 +15,12 @@ case class RawFls(ts: Long, uni_prid: String, data: Map[EnrichmentAttributeName,
 object RawFls {
 	private val LOG = LoggerFactory.getLogger(classOf[RawFls])
 
+	val WIPED_DATA = Map(
+		EnrichmentAttributeName.AVC -> null,
+		EnrichmentAttributeName.CPI -> null,
+		EnrichmentAttributeName.TECH_TYPE -> TechType.NotSupported
+	)
+
 	val UNKNOWN = RawFls(Long.MinValue, "", Map(EnrichmentAttributeName.TECH_TYPE -> TechType.NotSupported))
 
 	private val regexTc4 = """.*D(\d+-)?(\d+)_U(\d+-)?(\d+)_Mbps_TC4.*""".r

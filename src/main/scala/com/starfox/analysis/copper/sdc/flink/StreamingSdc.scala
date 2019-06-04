@@ -50,9 +50,15 @@ object StreamingSdc {
 			streamEnv.getCheckpointConfig.setFailOnCheckpointingErrors(cfgCheckpointStopJobWhenFail)
 			streamEnv.getCheckpointConfig.enableExternalizedCheckpoints(ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION)
 		}
-		streamEnv.getConfig.setTaskCancellationInterval(cfgTaskTimeoutInterval)
+		streamEnv.getConfig
+				.setTaskCancellationInterval(cfgTaskTimeoutInterval)
+				.enableObjectReuse()
 		streamEnv.setParallelism(cfgParallelism)
 		streamEnv.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
+
+		if (!appConfig.getBoolean("debug", false)) {
+			streamEnv.getConfig.disableSysoutLogging()
+		}
 
 		return streamEnv
 	}
@@ -78,7 +84,7 @@ object StreamingSdc {
 				.map(RawFls(_))
 				.filter(!_.equals(RawFls.UNKNOWN))
 				.name("FLS parquet")
-				.assignTimestampsAndWatermarks(EnrichmentRecordTimeExtractorForIdleSources[RawFls])
+				.assignTimestampsAndWatermarks(SdcRecordTimeExtractor[RawFls])
 
 		// Read AMS Data
 		val fifAmsParquet = new ChronosParquetFileInputFormat[PojoAms](new Path(cfgAmsParquetLocation), createTypeInformation[PojoAms])
@@ -98,7 +104,7 @@ object StreamingSdc {
 		// Join AMS with FLS
 		val streamAmsFlsParquet = streamAmsParquet.connect(streamFlsParquet)
 				.keyBy(_.uni_prid, _.uni_prid)
-				.flatMap(new MergeAmsFls)
+				.process(new MergeAmsFls)
 				.uid(OperatorId.AMS_FLS_MERGER)
 				.name("Merge AMS & FLS parquet")
 
@@ -134,7 +140,7 @@ object StreamingSdc {
 				.name("Atten375 parquet")
 				.assignTimestampsAndWatermarks(EnrichmentRecordTimeExtractorForIdleSources[EnrichmentRecord])
 
-		return streamAmsFlsParquet
+		return streamAmsFlsParquet.assignTimestampsAndWatermarks(EnrichmentRecordTimeExtractorForIdleSources[EnrichmentRecord])
 				.union(streamNacParquet).union(streamAtten375Parquet)
 	}
 
@@ -190,7 +196,7 @@ object StreamingSdc {
 
 	def readNoSyncMonitoringData(appConfig: ParameterTool, streamEnv: StreamExecutionEnvironment): DataStream[(String, Boolean)] = {
 		val regexRequest = """^(AVC\d{12})(?:[, ](?:(on|true)|(off|false)))?$""".r
-		val path = appConfig.get("source.nosync-candidate.path", "file:///Users/Huyen/Desktop/SDCTest/input/es")
+		val path = appConfig.get("concierge.source.watchlist.path", "file:///Users/Huyen/Desktop/SDCTest/input/es")
 		val ret = streamEnv.readFile(new TextInputFormat(new Path(path)), path, FileProcessingMode.PROCESS_CONTINUOUSLY, 1000)
 				.flatMap(_ match {
 					case regexRequest(a, b, c) =>
@@ -248,50 +254,77 @@ object StreamingSdc {
 
 
 		/** Handling Nosync */
-		val streamNosyncWatchListFromExternalRaw = readNoSyncMonitoringData(appConfig, streamEnv)
+		if (appConfig.getBoolean("concierge.enabled", false)) {
+			val streamNosyncWatchListFromExternalRaw = readNoSyncMonitoringData(appConfig, streamEnv)
 
-		val esUrl = appConfig.get("source.elasticsearch.endpoint")
-		val indexName = s"${appConfig.get("source.elasticsearch.sdc.index-name", appConfig.get("sink.elasticsearch.sdc.index-name", "copper-sdc-combined-default"))}*"
-		val docType = appConfig.get("source.elasticsearch.sdc.doc-type", "_doc")
-		val esQueryTimeout = appConfig.getInt("source.elasticsearch.concierge.timeout-seconds", 5)
-		val reInitMonitorPeriod = appConfig.getInt("concierge.reinit-monitor.period", 288)
-		val reInitMonitorThreshold = appConfig.getInt("concierge.reinit-monitor.threshold", 5)
-		val uasMonitorPeriod = appConfig.getInt("concierge.uas-monitor.period", 8)
-		val uasMonitorThreshold = appConfig.getInt("concierge.uas-monitor.threshold", 10)
+			val esUrl = appConfig.get("concierge.source.elasticsearch.endpoint")
+			val indexName = s"${appConfig.get("concierge.source.elasticsearch.sdc.index-name", appConfig.get("sink.elasticsearch.sdc.index-name", "copper-sdc-combined-default"))}*"
+			val docType = appConfig.get("source.elasticsearch.sdc.doc-type", "_doc")
+			val esQueryTimeout = appConfig.getInt("concierge.source.elasticsearch.timeout-seconds", 5)
+			val reInitMonitorPeriod = appConfig.getInt("concierge.reinit-monitor.period", 288)
+			val reInitMonitorThreshold = appConfig.getInt("concierge.reinit-monitor.threshold", 5)
+			val uasMonitorPeriod = appConfig.getInt("concierge.uas-monitor.period", 8)
+			val uasMonitorThreshold = appConfig.getInt("concierge.uas-monitor.threshold", 10)
 
-		val (streamNosyncEsData, streamWatchListFromExternal, streamWatchListRetry) =
-			ReadHistoricalDataFromES(streamNosyncWatchListFromExternalRaw, esUrl, indexName, docType, reInitMonitorPeriod, esQueryTimeout)
+			val (streamNosyncEsData, streamWatchListFromExternal, streamWatchListRetry) =
+				ReadHistoricalDataFromES(streamNosyncWatchListFromExternalRaw, esUrl, indexName, docType, reInitMonitorPeriod, esQueryTimeout)
 
-		val streamNoSyncOutput = streamWatchListFromExternal.iterate((watchList: DataStream[((String, String), Boolean)]) => {
-			val streamNosyncInput = new DataStreamUtils(streamSdcEnriched).reinterpretAsKeyedStream(r => (r.dslam, r.port))
-					.connect(watchList.keyBy(_._1))
-					.flatMap(new NosyncCandidateFilter())
-					.union(streamNosyncEsData.keyBy(r => (r.dslam, r.port)).map(r => r))
-			val streamNosyncOutput =
-				NoSync(new DataStreamUtils(streamNosyncInput).reinterpretAsKeyedStream(r => (r.dslam, r.port)),
-					reInitMonitorPeriod, uasMonitorPeriod,
-					reInitMonitorThreshold, uasMonitorThreshold)
+			val conciergeExportWatchlistTriggerPath = appConfig.get("concierge.export-watchlist.trigger-path", "file:///Users/Huyen/Desktop/SDCTest/input/export")
+			val exportTrigger = streamEnv.readFile(new TextInputFormat(new Path(conciergeExportWatchlistTriggerPath)),
+				conciergeExportWatchlistTriggerPath, FileProcessingMode.PROCESS_CONTINUOUSLY, 1000)
+					.map(!_.equals(""))
 
-			(streamNosyncOutput.map(r => ((r.dslam, r.port), false)),
-					streamNosyncOutput)
-		})
+			val streamNoSyncOutput = streamWatchListFromExternal.iterate((watchList: DataStream[((String, String), Boolean)]) => {
+				val tmpInRight: DataStream[Either[((String, String), Boolean), SdcCompact]] = streamSdcEnriched
+						.map(r => Right[((String, String), Boolean), SdcCompact](SdcCompact(r)))
+				val tmpInLeft: DataStream[Either[((String, String), Boolean), SdcCompact]] = watchList
+						.keyBy(_._1).map(r => Left[((String, String), Boolean), SdcCompact](r))
+				val tmpIn: DataStream[Either[((String, String), Boolean), SdcCompact]]  = tmpInRight.union(tmpInLeft)
+
+				val tmpInKeyed = new DataStreamUtils(tmpIn).reinterpretAsKeyedStream(r => r match {
+					case Left(t) => t._1
+					case Right(e) => (e.dslam, e.port)
+				})
+
+				val (streamNosyncInputLive, exported) = ExportWatchList(tmpInKeyed, exportTrigger)
+				val streamNosyncInput = streamNosyncEsData.keyBy(r => (r.dslam, r.port)).map(r => r)
+						.union(streamNosyncInputLive)
+
+				val streamNosyncOutput =
+					NoSync(new DataStreamUtils(streamNosyncInput).reinterpretAsKeyedStream(r => (r.dslam, r.port)),
+						reInitMonitorPeriod, uasMonitorPeriod,
+						reInitMonitorThreshold, uasMonitorThreshold)
+
+				(streamNosyncOutput.map(r => ((r.dslam, r.port), false)),
+						streamNosyncOutput)
+			})
+
+			//
+			//		val streamNoSyncOutput = streamWatchListFromExternal.iterate((watchList: DataStream[((String, String), Boolean)]) => {
+			//			val streamNosyncInput = new DataStreamUtils(streamSdcEnriched).reinterpretAsKeyedStream(r => (r.dslam, r.port))
+			//					.connect(watchList.keyBy(_._1))
+			//					.flatMap(new NosyncCandidateFilter())
+			//					.union(streamNosyncEsData.keyBy(r => (r.dslam, r.port)).map(r => r))
+			//			val streamNosyncOutput =
+			//				NoSync(new DataStreamUtils(streamNosyncInput).reinterpretAsKeyedStream(r => (r.dslam, r.port)),
+			//					reInitMonitorPeriod, uasMonitorPeriod,
+			//					reInitMonitorThreshold, uasMonitorThreshold)
+			//
+			//			(streamNosyncOutput.map(r => ((r.dslam, r.port), false)),
+			//					streamNosyncOutput)
+			//		})
+
+			//		val kinesisStreamName = appConfig.get("sink.kinesis.concierge.stream-name", "assn-huyen")
+			//		streamNoSyncOutput.addSink(SdcKinesisProducer[SdcCompact](kinesisStreamName)).name("KinesisSink")
+
+			streamNoSyncOutput.map(_.toString).addSink(StreamingFileSink
+					.forRowFormat(new Path("s3://assn-csa-prod-telemetry-data-lake/TEMP/Huyen/SDC/nosyncOut"),
+						new SimpleStringEncoder[String]("UTF-8"))
+					.withBucketAssigner(new DateTimeBucketAssigner[String]("yyyy-MM-dd"))
+					.build())
+		}
 
 
-
-		val kinesisStreamName = appConfig.get("sink.kinesis.concierge.stream-name", "assn-huyen")
-		streamNoSyncOutput.addSink(SdcKinesisProducer[SdcCompact](kinesisStreamName)).name("KinesisSink")
-
-//		streamNoSyncOutput.map("Tink Tink: " + _.toString).print()
-//		streamSdcEnriched.print()
-
-//		if (debug) {
-//			streamSdcEnriched.print()
-//			//			NoSync(streamSdcEnriched.filter(_.port == "R1.S1.LT1.P3").map(SdcCompact(_))
-//			//					.keyBy(r => (r.dslam, r.port)), 3, 2, 7).print()
-//			NoSync(streamEnv, streamSdcEnriched.filter(_.port == "R1.S1.LT1.P3").map(SdcCompact(_))
-//					//					.assignTimestampsAndWatermarks(SdcRecordTimeExtractor[SdcCompact])
-//					.keyBy(r => (r.dslam, r.port)), 3, 2, 7).print()
-//		}
 
 
 		/** Output */

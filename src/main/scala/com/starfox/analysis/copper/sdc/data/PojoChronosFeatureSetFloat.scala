@@ -13,7 +13,7 @@ class PojoChronosFeatureSetFloat(var metrics_timestamp: Timestamp,
 
 	def this() = this(PojoChronosFeatureSetFloat.MIN_TIME, "", "", 0.0f)
 
-	override def toString: String = s"FlsRaw($id,$id_type,$value)"
+	override def toString: String = s"PojoFloatFeature($id,$id_type,$value)"
 }
 
 object PojoChronosFeatureSetFloat {

@@ -21,6 +21,7 @@ import org.elasticsearch.search.builder.SearchSourceBuilder
 import org.elasticsearch.search.sort.{FieldSortBuilder, SortOrder}
 import org.slf4j.{Logger, LoggerFactory}
 
+import scala.annotation.tailrec
 import scala.collection.JavaConverters._
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.util.{Failure, Success, Try}
@@ -212,6 +213,17 @@ object ReadHistoricalDataFromES {
 					LOG.warn(s"Error while reading data from ElasticSearch for AVC ${searchRequest.source.query}: ${e}")
 					resultFuture.complete(Iterable((input._1, input._2, None)))
 			}(directExecCtx)
+		}
+	}
+
+	def doPackage(amount: Int, pkgs: Seq[Int]): Array[Map[Int, Int]] = {
+		pkgs match {
+			case Nil => if (amount == 0) Array(Map.empty) else Array.empty
+			case current_pkg :: remaining_pkgs => {
+				(0 to amount / current_pkg + 1)
+						.foldLeft(Array.empty: Array[Map[Int, Int]])((z, n) =>
+							z ++ doPackage(amount - n * current_pkg, remaining_pkgs).map(_ ++ Map(current_pkg -> n)))
+			}
 		}
 	}
 }

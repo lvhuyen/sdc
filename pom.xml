@@ -21,13 +21,13 @@ under the License.
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 
-	<groupId>com.nbnco.copper.csa.analysis.chronos</groupId>
-	<artifactId>chronos-flink</artifactId>
+	<groupId>com.starfox.analysis.copper.sdc</groupId>
+	<artifactId>sdc-flink</artifactId>
 	<version>0.3-snapshot</version>
 	<packaging>jar</packaging>
 
-	<name>Chronos SDC</name>
-	<url>http://www.nbnco.com.au</url>
+	<name>SDC using Flink</name>
+	<url>http://www.starfox.com</url>
 
 	<repositories>
 		<repository>

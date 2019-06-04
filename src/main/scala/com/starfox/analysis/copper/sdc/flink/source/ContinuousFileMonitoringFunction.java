@@ -71,7 +71,7 @@ import java.util.*;
 public class ContinuousFileMonitoringFunction<OUT>
         extends RichSourceFunction<TimestampedFileInputSplit> implements CheckpointedFunction {
 
-    private static final long serialVersionUID = 1123456787684567L;
+    private static final long serialVersionUID = 2704826787684567L;
 
     private static final Logger LOG = LoggerFactory.getLogger(ContinuousFileMonitoringFunction.class);
 
@@ -251,7 +251,7 @@ public class ContinuousFileMonitoringFunction<OUT>
         );
 
         if (context.isRestored()) {
-            LOG.info("Restoring state for the {}.", getClass().getSimpleName());
+            LOG.info("Restoring states for the {}.", getClass().getSimpleName());
 
             List<Long> retrievedStates = new ArrayList<>();
             for (Long entry : this.checkpointedState.get()) {
@@ -281,10 +281,9 @@ public class ContinuousFileMonitoringFunction<OUT>
 
             } else if (retrievedStates.size() == 1) {
                 this.globalModificationTime = retrievedStates.get(0);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("{} retrieved a global mod time of {}.",
+                    LOG.info("{} retrieved a global mod time of {}.",
                             getClass().getSimpleName(), globalModificationTime);
-                }
+
                 if (retrievedStates2.size() == 1 && processedFiles.size() != 0) {
                     // this is the case where we have both legacy and new state.
                     // The two should be mutually exclusive for the operator, thus we throw the exception.
@@ -292,11 +291,13 @@ public class ContinuousFileMonitoringFunction<OUT>
                             "The " + getClass().getSimpleName() + " has already restored from a previous Flink version.");
                 } else if (retrievedStates2.size() == 1) {
                     this.processedFiles = retrievedStates2.get(0);
-                    if (LOG.isDebugEnabled()) {
+                    if (LOG.isDebugEnabled())
                         LOG.debug("{} retrieved a list of {} processed files.",
                                 getClass().getSimpleName(), processedFiles.size());
-                    }
-                }
+                } else
+                    LOG.info("{} I don't know what the list of files are {} of {}.",
+                            getClass().getSimpleName(), this.path, retrievedStates2);
+
                 // Infer new maxProcessedTime from the list of processedFiles.
                 this.maxProcessedTime = this.processedFiles.size() > 0 ?
                         Collections.max(this.processedFiles.values()) :
@@ -310,6 +311,9 @@ public class ContinuousFileMonitoringFunction<OUT>
                     this.dirWatermark = Instant.ofEpochMilli(retrievedStates3.get(0));
                     LOG.info("{} retrieved a directory watermark for {} of {}.",
                             getClass().getSimpleName(), this.path, dirWatermark);
+                } else {
+                    LOG.info("{} I don't know what the directory watermark is {} of {}.",
+                            getClass().getSimpleName(), this.path, retrievedStates3);
                 }
             }
 
@@ -419,7 +423,8 @@ public class ContinuousFileMonitoringFunction<OUT>
                 // if some eligible files have been found then bring the (high) dirWatermark forward
                 // upto the latest directory timestamp
                 if (eligibleFiles.size() > 0 && curDirsChunk.lastKey().isAfter(dirWatermark)) {
-                    LOG.info("{} has dir watermark being advanced from {} to {}", path, dirWatermark, curDirsChunk.lastKey());
+                    if (LOG.isDebugEnabled())
+                        LOG.debug("{} has dir watermark being advanced from {} to {}", path, dirWatermark, curDirsChunk.lastKey());
                     dirWatermark = curDirsChunk.lastKey();
                 }
 
@@ -477,13 +482,13 @@ public class ContinuousFileMonitoringFunction<OUT>
         // This check is to ensure that globalModificationTime will not go backward
         // even if readConsistencyOffset is changed to a large value after a restore from checkpoint,
         // so  files would be processed twice
-        long currentMaxModificationTime = maxProcessedTime - readConsistencyOffset;
+//        long currentMaxModificationTime = maxProcessedTime - readConsistencyOffset;
 //        if (currentMaxModificationTime > globalModificationTime) {
 //            LOG.info("{} has globalModificationTime advanced from {} to {}",
 //                    path, globalModificationTime, currentMaxModificationTime);
 //            globalModificationTime = currentMaxModificationTime;
 //        }
-//        globalModificationTime = Math.max(maxProcessedTime - readConsistencyOffset, globalModificationTime);
+        globalModificationTime = Math.max(maxProcessedTime - readConsistencyOffset, globalModificationTime);
 //        LOG.info("{} has current globalModificationTime of {}", path, globalModificationTime);
 
         processedFiles.entrySet().removeIf(item -> item.getValue() <= globalModificationTime);
