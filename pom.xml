@@ -21,13 +21,13 @@ under the License.
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 
-	<groupId>com.nbnco.copper.csa.analysis.chronos</groupId>
-	<artifactId>chronos-flink</artifactId>
-	<version>0.2</version>
+	<groupId>com.starfox.analysis.copper.sdc</groupId>
+	<artifactId>sdc-flink</artifactId>
+	<version>0.3-snapshot</version>
 	<packaging>jar</packaging>
 
-	<name>Chronos SDC</name>
-	<url>http://www.nbnco.com.au</url>
+	<name>SDC using Flink</name>
+	<url>http://www.starfox.com</url>
 
 	<repositories>
 		<repository>
@@ -41,7 +41,7 @@ under the License.
 				<enabled>false</enabled>
 			</snapshots>
 		</repository>
-		<repository>
+<!--		<repository>
 			<id>apache.release-candidate</id>
 			<name>Apache Development Release Candidates</name>
 			<url>https://repository.apache.org/content/repositories/orgapacheflink-1206/</url>
@@ -51,15 +51,15 @@ under the License.
 			<snapshots>
 				<enabled>false</enabled>
 			</snapshots>
-		</repository>
+		</repository> -->
 	</repositories>
 
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<flink.version>1.7.2</flink.version>
+		<flink.version>1.8.0</flink.version>
 		<hadoop.version>2.8.5</hadoop.version>
-		<scala.binary.version>2.11</scala.binary.version>
-		<scala.version>2.11.12</scala.version>
+		<scala.binary.version>2.12</scala.binary.version>
+		<scala.version>2.12.7</scala.version>
 		<maven.scope>provided</maven.scope>
 	</properties>
 
@@ -78,6 +78,18 @@ under the License.
 			<version>${flink.version}</version>
 			<scope>${maven.scope}</scope>
 		</dependency>
+		<dependency>
+			<groupId>org.apache.flink</groupId>
+			<artifactId>flink-cep-scala_${scala.binary.version}</artifactId>
+			<version>${flink.version}</version>
+			<scope>${maven.scope}</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.hadoop</groupId>
+			<artifactId>hadoop-client</artifactId>
+			<version>${hadoop.version}</version>
+			<scope>${maven.scope}</scope>
+		</dependency>
 
 		<!-- Scala Library, provided by Flink as well. -->
 		<dependency>
@@ -87,11 +99,6 @@ under the License.
 			<scope>${maven.scope}</scope>
 		</dependency>
 		<!-- Hadoop and Flink libraries for parquet -->
-		<dependency>
-			<groupId>org.apache.hadoop</groupId>
-			<artifactId>hadoop-client</artifactId>
-			<version>${hadoop.version}</version>
-		</dependency>
 		<dependency>
 			<groupId>org.apache.flink</groupId>
 			<artifactId>flink-parquet</artifactId>
@@ -110,27 +117,36 @@ under the License.
 		</dependency>
 		<dependency>
 			<groupId>org.apache.flink</groupId>
-			<artifactId>flink-connector-filesystem_2.11</artifactId>
+			<artifactId>flink-connector-filesystem_${scala.binary.version}</artifactId>
 			<version>${flink.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.flink</groupId>
 			<artifactId>flink-s3-fs-hadoop</artifactId>
 			<version>${flink.version}</version>
+            <scope>${maven.scope}</scope>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.flink</groupId>
 			<artifactId>flink-statebackend-rocksdb_${scala.binary.version}</artifactId>
 			<version>${flink.version}</version>
+            <scope>${maven.scope}</scope>
 		</dependency>
-		<!-- Example:
-
 		<dependency>
 			<groupId>org.apache.flink</groupId>
-			<artifactId>flink-connector-kafka-0.10_${scala.binary.version}</artifactId>
+			<artifactId>flink-connector-kinesis_${scala.binary.version}</artifactId>
 			<version>${flink.version}</version>
 		</dependency>
-		-->
+		<dependency>
+			<groupId>org.apache.flink</groupId>
+			<artifactId>flink-connector-kafka_${scala.binary.version}</artifactId>
+			<version>${flink.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>org.elasticsearch.client</groupId>
+			<artifactId>elasticsearch-rest-high-level-client</artifactId>
+			<version>6.2.4</version>
+		</dependency>
 		<dependency>
 			<groupId>org.apache.flink</groupId>
 			<artifactId>flink-metrics-dropwizard</artifactId>
@@ -142,7 +158,25 @@ under the License.
 			<artifactId>json4s-jackson_${scala.binary.version}</artifactId>
 			<version>3.6.3</version>
 		</dependency>
-
+		<!-- Flink table -->
+		<dependency>
+			<groupId>org.apache.flink</groupId>
+			<artifactId>flink-table-planner_${scala.binary.version}</artifactId>
+			<version>${flink.version}</version>
+            <scope>${maven.scope}</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.flink</groupId>
+			<artifactId>flink-table-api-scala-bridge_${scala.binary.version}</artifactId>
+			<version>${flink.version}</version>
+			<scope>${maven.scope}</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.flink</groupId>
+			<artifactId>flink-table-common</artifactId>
+			<version>${flink.version}</version>
+			<scope>${maven.scope}</scope>
+		</dependency>
 		<!-- Add logging framework, to produce console output when running in the IDE. -->
 		<!-- These dependencies are excluded from the application JAR by default. -->
 		<dependency>
@@ -197,7 +231,7 @@ under the License.
 							</filters>
 							<transformers>
 								<transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-									<mainClass>com.nbnco.csa.analysis.copper.sdc.flink.StreamingSdcWithAverageByDslam</mainClass>
+									<mainClass>com.starfox.analysis.copper.sdc.flink.StreamingSdc</mainClass>
 								</transformer>
 							</transformers>
 						</configuration>
@@ -220,7 +254,7 @@ under the License.
 			<plugin>
 				<groupId>net.alchim31.maven</groupId>
 				<artifactId>scala-maven-plugin</artifactId>
-				<version>3.2.2</version>
+				<version>3.4.6</version>
 				<executions>
 					<execution>
 						<goals>
@@ -229,6 +263,17 @@ under the License.
 						</goals>
 					</execution>
 				</executions>
+				<configuration>
+					<jvmArgs>
+						<jvmArg>-Xms256m</jvmArg>
+						<jvmArg>-Xmx1024m</jvmArg>
+                        <jvmArg>-Xss2m</jvmArg>
+					</jvmArgs>
+					<!--<args>-->
+						<!--<arg>-deprecation</arg>-->
+						<!--<arg>-feature</arg>-->
+					<!--</args>-->
+				</configuration>
 			</plugin>
 
 			<!-- Eclipse Scala Integration -->
@@ -321,9 +366,15 @@ under the License.
 					<version>${flink.version}</version>
 					<scope>compile</scope>
 				</dependency>
+				<!--<dependency>-->
+					<!--<groupId>org.apache.flink</groupId>-->
+					<!--<artifactId>flink-table</artifactId>-->
+					<!--<version>${flink.version}</version>-->
+					<!--<scope>compile</scope>-->
+				<!--</dependency>-->
 				<dependency>
 					<groupId>org.apache.flink</groupId>
-					<artifactId>flink-table_${scala.binary.version}</artifactId>
+					<artifactId>flink-table-planner_${scala.binary.version}</artifactId>
 					<version>${flink.version}</version>
 					<scope>compile</scope>
 				</dependency>
@@ -333,12 +384,12 @@ under the License.
 					<version>${scala.version}</version>
 					<scope>compile</scope>
 				</dependency>
-				<dependency>
-					<groupId>org.apache.hadoop</groupId>
-					<artifactId>hadoop-client</artifactId>
-					<version>${hadoop.version}</version>
-					<scope>compile</scope>
-				</dependency>
+				<!--<dependency>-->
+					<!--<groupId>org.apache.hadoop</groupId>-->
+					<!--<artifactId>hadoop-client</artifactId>-->
+					<!--<version>${hadoop.version}</version>-->
+					<!--<scope>compile</scope>-->
+				<!--</dependency>-->
 				<dependency>
 					<groupId>org.apache.flink</groupId>
 					<artifactId>flink-metrics-dropwizard</artifactId>
@@ -346,7 +397,32 @@ under the License.
 				</dependency>
 				<dependency>
 					<groupId>org.apache.flink</groupId>
-					<artifactId>flink-runtime-web_2.11</artifactId>
+					<artifactId>flink-runtime-web_${scala.binary.version}</artifactId>
+					<version>${flink.version}</version>
+				</dependency>
+				<dependency>
+					<groupId>org.apache.flink</groupId>
+					<artifactId>flink-statebackend-rocksdb_${scala.binary.version}</artifactId>
+					<version>${flink.version}</version>
+				</dependency>
+				<dependency>
+					<groupId>org.apache.flink</groupId>
+					<artifactId>flink-cep-scala_${scala.binary.version}</artifactId>
+					<version>${flink.version}</version>
+				</dependency>
+                <dependency>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-client</artifactId>
+                    <version>${hadoop.version}</version>
+                </dependency>
+				<dependency>
+					<groupId>org.apache.flink</groupId>
+					<artifactId>flink-connector-kinesis_${scala.binary.version}</artifactId>
+					<version>${flink.version}</version>
+				</dependency>
+				<dependency>
+					<groupId>org.apache.flink</groupId>
+					<artifactId>flink-connector-kafka_${scala.binary.version}</artifactId>
 					<version>${flink.version}</version>
 				</dependency>
 			</dependencies>

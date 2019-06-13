@@ -1,0 +1,33 @@
+{
+  "order": 0,
+  "template": "sdc-dslam-missing*",
+  "refresh_interval": "30s",
+  "mappings": {
+    "_doc": {
+      "dynamic": false,
+      "_all": {
+        "enabled": false
+      },
+      "_source": {
+        "enabled": true
+      },
+      "properties": {
+        "metrics_timestamp": {
+          "type": "date",
+          "format": "epoch_millis",
+          "index": true
+        },
+        "dslam": {
+          "type": "keyword",
+          "ignore_above": 32,
+          "index": true
+        }
+      }
+
+    }
+  },
+  "aliases": {
+    "sdc-dslam-missing": {}
+  }
+}
+PUT /_template/sdc-dslam-missing-template
