@@ -1,4 +1,4 @@
-package com.starfox.analysis.copper.sdc.flink.source
+package com.starfox.flink.source
 
 import org.apache.flink.api.common.io.FileInputFormat
 import org.apache.flink.api.common.typeinfo.TypeInformation
@@ -6,7 +6,7 @@ import org.apache.flink.streaming.api.functions.source.{ContinuousFileReaderOper
 import org.apache.flink.streaming.api.scala._
 
 
-object SdcFiles {
+object SmallFilesReader {
 	def readFile[OUT: TypeInformation](streamEnv: StreamExecutionEnvironment,
 									   inputFormat: FileInputFormat[OUT],
 									   filePath: String,

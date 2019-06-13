@@ -2,7 +2,8 @@ package com.starfox.analysis.copper.sdc.flink.operator
 
 import com.starfox.analysis.copper.sdc.data.DslamType._
 import com.starfox.analysis.copper.sdc.data._
-import com.starfox.analysis.copper.sdc.flink.source.{SdcFilePathFilter, SdcFiles, SdcTarInputFormat, SdcTarInputFormatLite}
+import com.starfox.analysis.copper.sdc.flink.source.{SdcFilePathFilter, SdcTarInputFormat, SdcTarInputFormatLite}
+import com.starfox.flink.source.SmallFilesReader
 import org.apache.flink.api.common.state.ValueStateDescriptor
 import org.apache.flink.configuration.Configuration
 import org.apache.flink.core.fs.{FileInputSplit, Path}
@@ -69,7 +70,7 @@ object ReadAndCombineRawSdcFiles {
 
 		type IntermediateDataType = DslamRaw[Map[String, String]]
 
-		val streamDslamH: DataStream[IntermediateDataType] = SdcFiles
+		val streamDslamH: DataStream[IntermediateDataType] = SmallFilesReader
 				.readFile(streamEnv,
 					fifSdcHistorical,
 					cfgSdcHistoricalLocation,
@@ -78,7 +79,7 @@ object ReadAndCombineRawSdcFiles {
 				.uid(OperatorId.SOURCE_SDC_HISTORICAL + "_v0")
 				.name("Read SDC Historical")
 
-		val streamDslamI: DataStream[IntermediateDataType] = SdcFiles
+		val streamDslamI: DataStream[IntermediateDataType] = SmallFilesReader
 				.readFile(streamEnv,
 					fifSdcInstant,
 					cfgSdcInstantLocation,
@@ -126,7 +127,7 @@ object ReadAndCombineRawSdcFiles {
 
 		type IntermediateDataType = DslamRaw[FileInputSplit]
 
-		val streamDslamH: DataStream[IntermediateDataType] = SdcFiles
+		val streamDslamH: DataStream[IntermediateDataType] = SmallFilesReader
 				.readFile(streamEnv, fifSdcHistorical,
 					cfgSdcHistoricalLocation,
 					FileProcessingMode.PROCESS_CONTINUOUSLY,
@@ -135,7 +136,7 @@ object ReadAndCombineRawSdcFiles {
 				.uid(OperatorId.SOURCE_SDC_HISTORICAL)
 				.name("Read SDC Historical")
 
-		val streamDslamI: DataStream[IntermediateDataType] = SdcFiles
+		val streamDslamI: DataStream[IntermediateDataType] = SmallFilesReader
 				.readFile(streamEnv, fifSdcInstant,
 					cfgSdcInstantLocation,
 					FileProcessingMode.PROCESS_CONTINUOUSLY,

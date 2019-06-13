@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package com.starfox.analysis.copper.sdc.flink.source;
+package com.starfox.flink.source;
 
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.annotation.VisibleForTesting;
