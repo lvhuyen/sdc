@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<project version="4">
-  <component name="ScalaCompilerConfiguration">
-    <option name="uncheckedWarnings" value="true" />
-    <profile name="Maven 1" modules="chronos-flink,sdc-flink,sdc-flink-state-client,sdc-flink-states-client,sdcflinkstateclient" />
-  </component>
-</project>
