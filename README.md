@@ -1,4 +1,4 @@
-Handling streaming sources with a large number of files (> 1,000,000)
+Handling streaming sources with a large number (millions) of files
 ============
 # The problem
 Small file is something that the Hadoop community doesn't like. It affects your solution's performance and resources ([https://medium.com/arabamlabs/small-files-in-hadoop-88708e2f6a46]())
