@@ -14,6 +14,11 @@ object SdcTarInputFormatLite {
 	val LOG: Logger = LoggerFactory.getLogger(classOf[SdcTarInputFormat])
 }
 
+/**
+  * This class reads the file_info only, then pass the FileInputSplit into the next step
+  * @param filePath
+  * @param metricsPrefix
+  */
 class SdcTarInputFormatLite(filePath: Path, metricsPrefix: String)
 		extends FileInputFormat[DslamRaw[FileInputSplit]] (filePath)
 				with CheckpointableInputFormat[FileInputSplit, Integer] {

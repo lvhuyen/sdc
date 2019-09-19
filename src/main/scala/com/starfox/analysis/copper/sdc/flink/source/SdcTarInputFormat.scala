@@ -65,30 +65,34 @@ class SdcTarInputFormat(filePath: Path, metricsPrefix: String, truncatePathWhile
 	private val FILENAME_DATE_FORMAT = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss")
 	FILENAME_DATE_FORMAT.setTimeZone(java.util.TimeZone.getTimeZone("UTC"))
 
-	// ------------------------ Abstract member -------------------------------
 	/**
-	  * This function prepares the input data, like parsing headers, or merging data from multiple files
-	  * The function returns a tuple of two String if the header is valid, and returns null if invalid
-	  * *
-	  *
-	  * @return Returns one FileOutput - a tuple4, with:
-		*         first element is the last Modified Date of the inner file
-		*         second element is the headers (a map from header name to header value)
-	  	*         third element is the records (a map from port to data)
-	  	*         fourth element is the number of file read (always 1 in this case)
+	  * The first element is the last Modified Date of the inner file
+	  * The second element is the headers (a map from header name to header value)
+	  * The third element is the records (a map from port to data)
+	  * The fourth element is the number of files have been read
 	  */
 	type FileOutput = (Long, Map[String, String], Map[String, String], Int)
+
+	/**
+	  * This method reads a single file from a TarArchiveInputStream
+	  *
+	  * @param tarStream - the input TarArchiveInputStream
+	  * @throws IOException
+	  * @return the tuple4 FileOutput, with the 4th element always having the value of 1
+	  */
 	@throws[IOException]
 	private def readTarEntryFromStream(tarStream: TarArchiveInputStream): FileOutput = {
 		val lines = scala.io.Source.fromInputStream(tarStream).getLines
 		val (first_half, second_half) = lines.span(!_.startsWith("Object ID"))
 
-		val tmp_h = first_half.filter(!_.isEmpty)
+		val raw_headers = first_half.filter(!_.isEmpty)
 				.map(_.span(_ != ',')) ++ Iterator(("Columns", second_half.next.dropWhile(_ != ',')))
-		val headers = tmp_h.toMap[String, String].mapValues(_.drop(1))
+		val headers = raw_headers.toMap[String, String].mapValues(_.drop(1))
 
-		val tmp_r = second_half.map(_.span(_ != ',')).toMap[String, String]
-		PortFormatConverter.convertPortAndManipulateValue[String](tmp_r, _.drop(1)) match {
+		val raw_records = second_half.map(_.span(_ != ',')).toList
+
+		PortFormatConverter.convertPortAndManipulateValue(
+			s"${fileName}.${tarStream.getCurrentEntry.getName}", raw_records, _.drop(1)) match {
 			case Success(records) =>
 				(tarStream.getCurrentEntry.getLastModifiedDate.getTime, headers, records, 1)
 			case Failure(exception) =>
@@ -96,6 +100,15 @@ class SdcTarInputFormat(filePath: Path, metricsPrefix: String, truncatePathWhile
 		}
 	}
 
+	/**
+	  * This method loops thru all member files of the TarArchiveInputFormat, parses each file, then merge all results into one
+	  *
+	  * @return Returns one FileOutput - a tuple4, with:
+	  *         first element is the last Modified Date of the inner file
+	  *         second element is the headers (a map from header name to header value)
+	  *         third element is the records (a map from port to data)
+	  *         fourth element is the number of file read (always 1 in this case)
+	  */
 	@throws[IOException]
 	@tailrec
 	private def readCompositTarFile(tarStream: TarArchiveInputStream, accumulator: FileOutput): FileOutput = {
@@ -125,7 +138,6 @@ class SdcTarInputFormat(filePath: Path, metricsPrefix: String, truncatePathWhile
 	private def prepareData(): DslamRaw[Map[String, String]] = {
 		val tarStream = new TarArchiveInputStream(this.stream)
 		try {
-//			this.portPatternId = PORT_PATTERN_UNKNOWN
 			val processingTime = new java.util.Date().getTime
 
 			val (tarComponentFileTime, headers, records, fileCount) =
@@ -146,8 +158,6 @@ class SdcTarInputFormat(filePath: Path, metricsPrefix: String, truncatePathWhile
 				this.DELAY_METER.markEvent((this.fileModTime - metricsTime) / 1000)
 			}
 
-//			DslamRaw(metricsTime, headers("NE Name"), if (fileCount == 1) DSLAM_HISTORICAL else DSLAM_INSTANT, records,
-//				DslamMetadata(headers("Columns"), fileName.getPath.split(filePath.getPath)(1), fileModTime, processingTime, tarComponentFileTime, records.size))
 			DslamRaw(metricsTime, headers("NE Name"), if (fileCount == 1) DSLAM_HISTORICAL else DSLAM_INSTANT, records,
 				DslamMetadata(headers("Columns"), fileName.getPath.split("/", truncatePathWhileLoggingUpToLevel + 2).last, fileModTime, processingTime, tarComponentFileTime, records.size))
 		} finally {
