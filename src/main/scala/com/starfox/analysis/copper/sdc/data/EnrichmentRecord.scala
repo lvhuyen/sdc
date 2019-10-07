@@ -1,12 +1,14 @@
 package com.starfox.analysis.copper.sdc.data
 
+import java.lang.{Long => JLong}
+
 /**
   * Created by Huyen on 11/7/18.
   */
 
 import com.starfox.analysis.copper.sdc.data.EnrichmentAttributeName._
 import org.slf4j.LoggerFactory
-case class EnrichmentRecord(ts: Long, dslam: String, port: String, data: EnrichmentData)
+case class EnrichmentRecord(var ts: Long, var dslam: String, var port: String, data: EnrichmentData)
 		extends CopperLine {
 
 	def this() = this (0L, "", "", Map.empty)

@@ -3,7 +3,7 @@ package com.starfox.analysis.copper.sdc.flink.source
 import org.apache.flink.api.common.typeinfo.TypeInformation
 import org.apache.flink.api.java.typeutils.PojoTypeInfo
 import org.apache.flink.core.fs.{FileInputSplit, Path}
-import org.apache.flink.formats.parquet.ParquetPojoInputFormat
+import com.starfox.flink.source.ParquetPojoInputFormat
 import org.slf4j.LoggerFactory
 
 class ChronosParquetFileInputFormat[PojoType](filePath: Path, typeInfo: TypeInformation[PojoType])
@@ -21,8 +21,6 @@ class ChronosParquetFileInputFormat[PojoType](filePath: Path, typeInfo: TypeInfo
 			case a: Throwable => throw a
 		}
 	}
-
-//	override
 }
 
 object ChronosParquetFileInputFormat {

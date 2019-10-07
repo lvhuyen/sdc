@@ -13,8 +13,8 @@ case class SdcDataEnrichment(ts: Long,
 			"enrich_timestamp" -> System.currentTimeMillis(),
 			"avcid" -> avc,
 			"cpid" -> cpi,
-			"correctedAttndrDs" -> corrAttndrDs,
-			"correctedAttndrUs" -> corrAttndrUs
+			"correctedAttainableNetDataRateDownstream" -> corrAttndrDs,
+			"correctedAttainableNetDataRateUpstream" -> corrAttndrUs
 		)
 	}
 }

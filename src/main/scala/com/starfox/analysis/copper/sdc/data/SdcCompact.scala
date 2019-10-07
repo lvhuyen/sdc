@@ -23,7 +23,7 @@ object SdcCompact {
             Try(source.get(FieldName.UAS).asInstanceOf[String].toShort).toOption,
             source.getOrElse(FieldName.ATTNDRDS,"0").asInstanceOf[String].toInt,
             source.getOrElse(FieldName.ATTNDRUS,"0").asInstanceOf[String].toInt,
-            source.getOrElse(FieldName.IFOPERSTATUS,"down").asInstanceOf[String].equals("up")
+            source.getOrElse(FieldName.IFOPERSTATUS,"down").asInstanceOf[String]
         )
     }
 
@@ -41,7 +41,7 @@ object SdcCompact {
     }
 }
 
-case class SdcCompact(ts: Long,
+case class SdcCompact(var ts: Long,
                       dslam: String,
                       port: String,
                       avc: String,
@@ -50,7 +50,7 @@ case class SdcCompact(ts: Long,
                       uas: Option[Short],
                       attndrDS: Int,
                       attndrUS: Int,
-                      ifOperStatus: Boolean) extends TemporalEvent {
+                      ifOperStatus: String) extends TemporalEvent {
 
 //    override def toString() = {
 //        s"$ts,$dslam,$port,$avc,$lpr,$reInit,$uas,$attndrDS,$attndrUS,$ifOperStatus"

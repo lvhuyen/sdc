@@ -10,8 +10,8 @@ package com.starfox.analysis.copper.sdc.data
   * @param reInit       xdslLinePreviousIntervalReInitCounter
   * @param unCorrDtuDs  xdslFarEndChannelPreviousIntervalUnCorrDtuCounterDS		// UnCorrectable DTU
   * @param unCorrDtuUs  xdslChannelPreviousIntervalUnCorrDtuCounterUS
-  * @param reTransUs    xdslFarEndChannelPreviousIntervalRetransmDtuCounterUS
   * @param reTransDs    xdslChannelPreviousIntervalRetransmDtuCounterDS
+  * @param reTransUs    xdslFarEndChannelPreviousIntervalRetransmDtuCounterUS
   *                     Drop-out = reInit - LPR
   */
 case class SdcDataHistorical(ses: Short,
@@ -21,8 +21,8 @@ case class SdcDataHistorical(ses: Short,
 							 reInit: Short,
                              unCorrDtuDs: Long,
                              unCorrDtuUs: Long,
-                             reTransUs : Long,
-                             reTransDs: Long
+                             reTransDs : Long,
+                             reTransUs: Long
                             ) {
 	def toMap: Map[String, Any] = {
 		Map (
@@ -33,8 +33,8 @@ case class SdcDataHistorical(ses: Short,
 			"xdslLinePreviousIntervalReInitCounter" -> reInit,
 			"xdslFarEndChannelPreviousIntervalUnCorrDtuCounterDS" -> unCorrDtuDs,
 			"xdslChannelPreviousIntervalUnCorrDtuCounterUS" -> unCorrDtuUs,
-			"xdslFarEndChannelPreviousIntervalRetransmDtuCounterUS" -> reTransUs,
-			"xdslChannelPreviousIntervalRetransmDtuCounterDS" -> reTransDs
+			"xdslChannelPreviousIntervalRetransmDtuCounterDS" -> reTransDs,
+			"xdslFarEndChannelPreviousIntervalRetransmDtuCounterUS" -> reTransUs
 		)
 	}
 }

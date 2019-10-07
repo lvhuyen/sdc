@@ -7,7 +7,7 @@ import org.apache.avro.generic.IndexedRecord
 /**
   * Created by Huyen on 1/10/18.
   */
-case class DslamRaw[DataType](ts: Long,
+case class DslamRaw[DataType](var ts: Long,
 							  name: String,
 							  dslamType: Int,
 							  data: DataType,

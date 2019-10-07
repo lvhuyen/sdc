@@ -1,5 +1,3 @@
 package com.starfox.analysis.copper.sdc.data
 
-trait TemporalEvent {
-  val ts: Long
-}
+trait TemporalEvent {var ts: Long}

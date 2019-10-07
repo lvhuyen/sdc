@@ -14,7 +14,7 @@ import scala.util.Try
 
 /**
   */
-case class SdcCombined(ts: Long, dslam: String, port: String,
+case class SdcCombined(var ts: Long, var dslam: String, var port: String,
                        dataI: SdcDataInstant,
                        dataH: Option[SdcDataHistorical],
                        enrich: Option[SdcDataEnrichment]
@@ -37,14 +37,14 @@ case class SdcCombined(ts: Long, dslam: String, port: String,
             case 0 => ts: JLong
             case 1 => dslam
             case 2 => port
-            case 3 => dataI.ifAdminStatus: JBool
-            case 4 => dataI.ifOperStatus: JBool
+            case 3 => dataI.ifAdminStatus: String
+            case 4 => dataI.ifOperStatus: String
             case 5 => dataI.actualDs: Integer
             case 6 => dataI.actualUs: Integer
             case 7 => dataI.attndrDs: Integer
             case 8 => dataI.attndrUs: Integer
             case 9 => dataI.attenuationDs.map(_/10.0f: JFloat).orNull
-            case 10 => dataI.userMacAddress
+            case 10 => dataI.userMacAddress.orNull
             case 11 => dataH.map(_.ses: JShort).orNull
             case 12 => dataH.map(_.uas: JShort).orNull
             case 13 => dataH.map(_.lprFe: JShort).orNull
@@ -52,8 +52,8 @@ case class SdcCombined(ts: Long, dslam: String, port: String,
 			case 15 => dataH.map(_.reInit: JShort).orNull
             case 16 => dataH.map(_.unCorrDtuDs: JLong).orNull
             case 17 => dataH.map(_.unCorrDtuUs: JLong).orNull
-            case 18 => dataH.map(_.reTransUs: JLong).orNull
-            case 19 => dataH.map(_.reTransDs: JLong).orNull
+            case 18 => dataH.map(_.reTransDs: JLong).orNull
+            case 19 => dataH.map(_.reTransUs: JLong).orNull
             case 20 => enrich.map(_.ts: JLong).orNull
             case 21 => enrich.map(_.avc).orNull
             case 22 => enrich.map(_.cpi).orNull
@@ -79,14 +79,14 @@ object SdcCombined {
 
 		val i = if (v(ref(0)) != "")
 			SdcDataInstant(
-				v(ref(0)).equals("up"),
-				v(ref(1)).equals("up"),
+				v(ref(0)),
+				v(ref(1)),
 				v(ref(2)).toInt,
 				v(ref(3)).toInt,
 				v(ref(4)).toInt,
 				v(ref(5)).toInt,
 				Try(v(ref(6)).toShort).toOption,
-				v(ref(7))
+				Some(v(ref(7)))
 			) else SdcDataInstant.EMPTY
 
 		val h = Try(SdcDataHistorical(
@@ -126,8 +126,8 @@ object SdcCombined {
 		"xdslLinePreviousIntervalReInitCounter",
 		"xdslFarEndChannelPreviousIntervalUnCorrDtuCounterDS",
 		"xdslChannelPreviousIntervalUnCorrDtuCounterUS",
-		"xdslFarEndChannelPreviousIntervalRetransmDtuCounterUS",
-		"xdslChannelPreviousIntervalRetransmDtuCounterDS"
+		"xdslChannelPreviousIntervalRetransmDtuCounterDS",
+		"xdslFarEndChannelPreviousIntervalRetransmDtuCounterUS"
 	)
 
 
@@ -138,42 +138,28 @@ object SdcCombined {
 				.name("ts").`type`("long").noDefault()
 				.name("dslam").`type`("string").noDefault()
 				.name("port").`type`("string").noDefault()
-				.name("ifAdminStatus").`type`("boolean").noDefault()
-				.name("ifOperStatus").`type`("boolean").noDefault()
-				.name("actualDs").`type`("int").noDefault()
-				.name("actualUs").`type`("int").noDefault()
-				.name("attndrDs").`type`("int").noDefault()
-				.name("attndrUs").`type`("int").noDefault()
-				.name("attenuationDs").`type`().nullable().floatType().noDefault()
-				.name("userMacAddress").`type`().nullable().stringType().noDefault()
+				.name("if_admin_status").`type`("string").noDefault()
+				.name("if_oper_status").`type`("string").noDefault()
+				.name("actual_ds").`type`("int").noDefault()
+				.name("actual_us").`type`("int").noDefault()
+				.name("attndr_ds").`type`("int").noDefault()
+				.name("attndr_us").`type`("int").noDefault()
+				.name("attenuation_ds").`type`().nullable().floatType().noDefault()
+				.name("mac_address").`type`().nullable().stringType().noDefault()
 				.name("ses").`type`().nullable().intType().noDefault()
 				.name("uas").`type`().nullable().intType().noDefault()
-				.name("lprFe").`type`().nullable().intType().noDefault()
-				.name("sesFe").`type`().nullable().intType().noDefault()
-				.name("reInit").`type`().nullable().intType().noDefault()
-				.name("unCorrDtuDs").`type`().nullable().longType().noDefault()
-				.name("unCorrDtuUs").`type`().nullable().longType().noDefault()
-				.name("reTransUs").`type`().nullable().longType().noDefault()
-				.name("reTransDs").`type`().nullable().longType().noDefault()
-				.name("tsEnrich").`type`().nullable().longType().noDefault()
+				.name("lpr_fe").`type`().nullable().intType().noDefault()
+				.name("ses_fe").`type`().nullable().intType().noDefault()
+				.name("re_init").`type`().nullable().intType().noDefault()
+				.name("un_corr_dtu_ds").`type`().nullable().longType().noDefault()
+				.name("un_corr_dtu_us").`type`().nullable().longType().noDefault()
+				.name("re_trans_ds").`type`().nullable().longType().noDefault()
+				.name("re_trans_us").`type`().nullable().longType().noDefault()
+				.name("ts_enrich").`type`().nullable().longType().noDefault()
 				.name("avc").`type`().nullable().stringType().noDefault()
 				.name("cpi").`type`().nullable().stringType().noDefault()
-				.name("correctedAttndrDs").`type`().nullable().intType().noDefault()
-				.name("correctedAttndrUs").`type`().nullable().intType().noDefault()
+				.name("corrected_attndr_ds").`type`().nullable().intType().noDefault()
+				.name("corrected_attndr_us").`type`().nullable().intType().noDefault()
 				.endRecord()
-
-
-//				.name("ses").`type`("int").noDefault()
-//				.name("uas").`type`("int").noDefault()
-//				.name("lprFe").`type`("int").noDefault()
-//				.name("sesFe").`type`("int").noDefault()
-//				.name("reInit").`type`("int").noDefault()
-//				.name("unCorrDtuDs").`type`("long").noDefault()
-//				.name("unCorrDtuUs").`type`("long").noDefault()
-//				.name("reTransUs").`type`("long").noDefault()
-//				.name("reTransDs").`type`("long").noDefault()
-//				.name("tsEnrich").`type`("long").noDefault()
-
-
 	}
 }

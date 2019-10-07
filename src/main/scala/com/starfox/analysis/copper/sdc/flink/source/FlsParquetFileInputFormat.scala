@@ -3,7 +3,7 @@ package com.starfox.analysis.copper.sdc.flink.source
 import com.starfox.analysis.copper.sdc.data.PojoFls
 import org.apache.flink.api.java.typeutils.PojoTypeInfo
 import org.apache.flink.core.fs.{FileInputSplit, Path}
-import org.apache.flink.formats.parquet.ParquetPojoInputFormat
+import com.starfox.flink.source.ParquetPojoInputFormat
 import org.apache.flink.streaming.api.scala.createTypeInformation
 import org.slf4j.LoggerFactory
 

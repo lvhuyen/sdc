@@ -4,7 +4,9 @@ package com.starfox.analysis.copper.sdc.data
   * Created by Huyen on 5/9/18.
   */
 
-case class RawAms(ts: Long, dslam: String, port: String, uni_prid: String) extends CopperLine
+case class RawAms(var ts: Long, var dslam: String, var port: String, var uni_prid: String) extends CopperLine {
+	def this() = this(Long.MinValue, "", "", "")
+}
 
 object RawAms {
 	def apply(pojoAms: PojoAms) = {

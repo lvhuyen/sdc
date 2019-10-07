@@ -250,7 +250,7 @@ object StreamingSdc {
 		/** Enrich SDC Streams */
 		val streamPctls = readPercentilesTable(appConfig, streamEnv)
 		val streamSdcEnriched: DataStream[SdcCombined] =
-			EnrichSdcRecord(streamSdcCombinedRaw.filter(_.dataI.ifAdminStatus.booleanValue()), streamPctls, streamEnrichmentAgg)
+			EnrichSdcRecord(streamSdcCombinedRaw.filter(_.dataI.ifAdminStatus.equals("up")), streamPctls, streamEnrichmentAgg)
 
 
 		/** Handling Nosync */

@@ -21,5 +21,7 @@ class PojoNac(var metrics_timestamp: Timestamp,
 }
 
 object PojoNac {
-	val MIN_TIME = Timestamp.valueOf(LocalDateTime.MIN)
+	val MIN_TIME: Timestamp = Timestamp.valueOf(LocalDateTime.MIN)
+	val BLANK:PojoNac = new PojoNac(MIN_TIME, "", "", "", "", "", "")
+	def apply(): PojoNac = BLANK
 }

@@ -10,7 +10,7 @@ import org.slf4j.LoggerFactory
   */
 
 
-case class RawFls(ts: Long, uni_prid: String, data: Map[EnrichmentAttributeName, Any]) extends TemporalEvent
+case class RawFls(var ts: Long, uni_prid: String, data: Map[EnrichmentAttributeName, Any]) extends TemporalEvent
 
 object RawFls {
 	private val LOG = LoggerFactory.getLogger(classOf[RawFls])

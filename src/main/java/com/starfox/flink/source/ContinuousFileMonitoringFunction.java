@@ -1,4 +1,3 @@
-
 /*
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -27,27 +26,23 @@ import org.apache.flink.api.common.state.ListStateDescriptor;
 import org.apache.flink.api.common.typeutils.base.LongSerializer;
 import org.apache.flink.api.common.typeutils.base.MapSerializer;
 import org.apache.flink.api.common.typeutils.base.StringSerializer;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.core.fs.*;
+import org.apache.flink.core.fs.FileInputSplit;
+import org.apache.flink.core.fs.FileStatus;
+import org.apache.flink.core.fs.FileSystem;
+import org.apache.flink.core.fs.Path;
 import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
 import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
-import org.apache.flink.streaming.api.functions.source.ContinuousFileReaderOperator;
-import org.apache.flink.streaming.api.functions.source.FileProcessingMode;
-import org.apache.flink.streaming.api.functions.source.RichSourceFunction;
-import org.apache.flink.streaming.api.functions.source.TimestampedFileInputSplit;
+import org.apache.flink.streaming.api.functions.source.*;
 import org.apache.flink.util.Preconditions;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneOffset;
-import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 /**
@@ -71,7 +66,7 @@ import java.util.*;
 public class ContinuousFileMonitoringFunction<OUT>
         extends RichSourceFunction<TimestampedFileInputSplit> implements CheckpointedFunction {
 
-    private static final long serialVersionUID = 2704826787684567L;
+    private static final long serialVersionUID = 1L;
 
     private static final Logger LOG = LoggerFactory.getLogger(ContinuousFileMonitoringFunction.class);
 
@@ -91,7 +86,6 @@ public class ContinuousFileMonitoringFunction<OUT>
 
     /** The path to monitor. */
     private final String path;
-    private final String basePath;
 
     /** The parallelism of the downstream readers. */
     private final int readerParallelism;
@@ -118,29 +112,26 @@ public class ContinuousFileMonitoringFunction<OUT>
     /** The maximum file modification time seen so far. */
     private volatile long maxProcessedTime = Long.MIN_VALUE;
 
-    /** The current directory watermark, used to skip reading old directories */
-
-    public static final Instant IGNORE_THIS_DIRECTORY = Instant.ofEpochMilli(Long.MIN_VALUE);
-    public static final Instant MIN_DIR_TIMESTAMP = Instant.ofEpochMilli(Long.MIN_VALUE + 1000);
-    private volatile Instant dirWatermark = MIN_DIR_TIMESTAMP;
-
-    /** Max amount of time between latest directory and the directory that will be eligible to scan */
-    private final long dirScanChunkSizeInSeconds;
-    private final long dirRescanIntervalInSeconds;
-
-    /** Max amount of time between latest directory and the directory that will be eligible to scan */
-
     /** The list of processed files having modification time within the period from globalModificationTime
      *  to maxProcessedTime in the form of a Map&lt;filePath, lastModificationTime&gt;. */
     private volatile Map<String, Long> processedFiles;
+
+    /** The {@link FileInputFormat} to be read. */
+    private final DirectoriesPartitioner directoriesPartitioner;
+
+    private transient long maxCurrentTimestamp;
+    private transient long nearestFutureTimestamp;
+
+    private long windowBegin;
+    private long windowEnd;
+    private long prevWindowEnd;
+    // End of directories-partitioner related params
 
     private transient Object checkpointLock;
 
     private volatile boolean isRunning = true;
 
     private transient ListState<Long> checkpointedState;
-
-    private transient ListState<Long> checkpointedStateDirWatermark;
 
     private transient ListState<Map<String, Long>> checkpointedStateProcessedFilesList;
 
@@ -158,18 +149,6 @@ public class ContinuousFileMonitoringFunction<OUT>
             int readerParallelism,
             long interval,
             long readConsistencyOffset) {
-        this(format, watchType, readerParallelism, interval, readConsistencyOffset, Long.MAX_VALUE);
-    }
-
-    public ContinuousFileMonitoringFunction(
-            FileInputFormat<OUT> format,
-            FileProcessingMode watchType,
-            int readerParallelism,
-            long interval,
-            long readConsistencyOffset,
-            long directoryRescanInterval) {
-
-        LOG.info("Started monitoring {} folder(s): {} ", format.getFilePaths().length, format.getFilePaths()[0].toString());
 
         Preconditions.checkArgument(
                 watchType == FileProcessingMode.PROCESS_ONCE || interval >= MIN_MONITORING_INTERVAL,
@@ -190,7 +169,6 @@ public class ContinuousFileMonitoringFunction<OUT>
 
         this.format = Preconditions.checkNotNull(format, "Unspecified File Input Format.");
         this.path = Preconditions.checkNotNull(format.getFilePaths()[0].toString(), "Unspecified Path.");
-        this.basePath = new Path(path).getPath() + "/";
 
         this.interval = interval;
         this.watchType = watchType;
@@ -200,14 +178,16 @@ public class ContinuousFileMonitoringFunction<OUT>
         this.maxProcessedTime = Long.MIN_VALUE + this.readConsistencyOffset;
         this.processedFiles = new HashMap<>();
 
-        if (this.readConsistencyOffset > 10) {
-            this.dirScanChunkSizeInSeconds = 900L;
-            this.dirRescanIntervalInSeconds = 3 * dirScanChunkSizeInSeconds;
-            dirWatermark = dirWatermark.plusSeconds(dirRescanIntervalInSeconds);
+        if (format instanceof DirectoriesPartitioner) {
+            directoriesPartitioner = (DirectoriesPartitioner)format;
         } else {
-            this.dirScanChunkSizeInSeconds = 0L;
-            this.dirRescanIntervalInSeconds = Integer.MAX_VALUE;
+            directoriesPartitioner = null;
         }
+        this.maxCurrentTimestamp = Long.MIN_VALUE;
+        this.nearestFutureTimestamp = Long.MIN_VALUE;
+        this.prevWindowEnd = Long.MIN_VALUE;
+        this.windowEnd = Long.MIN_VALUE;
+        this.windowBegin = Long.MIN_VALUE;
     }
 
     @VisibleForTesting
@@ -237,12 +217,6 @@ public class ContinuousFileMonitoringFunction<OUT>
                         LongSerializer.INSTANCE
                 )
         );
-        this.checkpointedStateDirWatermark = context.getOperatorStateStore().getListState(
-                new ListStateDescriptor<>(
-                        "directory-watermark",
-                        LongSerializer.INSTANCE
-                )
-        );
         this.checkpointedStateProcessedFilesList = context.getOperatorStateStore().getListState(
                 new ListStateDescriptor<>(
                         "file-monitoring-state-processed-files-list",
@@ -251,7 +225,7 @@ public class ContinuousFileMonitoringFunction<OUT>
         );
 
         if (context.isRestored()) {
-            LOG.info("Restoring states for the {}.", getClass().getSimpleName());
+            LOG.info("Restoring state for the {}.", getClass().getSimpleName());
 
             List<Long> retrievedStates = new ArrayList<>();
             for (Long entry : this.checkpointedState.get()) {
@@ -260,10 +234,6 @@ public class ContinuousFileMonitoringFunction<OUT>
             List<Map<String, Long>> retrievedStates2 = new ArrayList<>();
             for (Map<String, Long> entry : this.checkpointedStateProcessedFilesList.get()) {
                 retrievedStates2.add(entry);
-            }
-            List<Long> retrievedStates3 = new ArrayList<>();
-            for (Long entry : this.checkpointedStateDirWatermark.get()) {
-                retrievedStates3.add(entry);
             }
 
             // given that the parallelism of the function is 1, we can only have 1 or 0 retrieved items.
@@ -281,9 +251,10 @@ public class ContinuousFileMonitoringFunction<OUT>
 
             } else if (retrievedStates.size() == 1) {
                 this.globalModificationTime = retrievedStates.get(0);
-                    LOG.info("{} retrieved a global mod time of {}.",
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("{} retrieved a global mod time of {}.",
                             getClass().getSimpleName(), globalModificationTime);
-
+                }
                 if (retrievedStates2.size() == 1 && processedFiles.size() != 0) {
                     // this is the case where we have both legacy and new state.
                     // The two should be mutually exclusive for the operator, thus we throw the exception.
@@ -291,29 +262,18 @@ public class ContinuousFileMonitoringFunction<OUT>
                             "The " + getClass().getSimpleName() + " has already restored from a previous Flink version.");
                 } else if (retrievedStates2.size() == 1) {
                     this.processedFiles = retrievedStates2.get(0);
-                    if (LOG.isDebugEnabled())
+                    if (LOG.isDebugEnabled()) {
                         LOG.debug("{} retrieved a list of {} processed files.",
                                 getClass().getSimpleName(), processedFiles.size());
-                } else
-                    LOG.info("{} I don't know what the list of files are {} of {}.",
-                            getClass().getSimpleName(), this.path, retrievedStates2);
-
+                    }
+                }
                 // Infer new maxProcessedTime from the list of processedFiles.
                 this.maxProcessedTime = this.processedFiles.size() > 0 ?
-                        Collections.max(this.processedFiles.values()) :
+                        java.util.Collections.max(this.processedFiles.values()) :
                         this.globalModificationTime;
                 // This check is to ensure that maxProcessedTime - readConsistencyOffset > Long.MIN_VALUE
                 if (this.maxProcessedTime < Long.MIN_VALUE + this.readConsistencyOffset) {
                     this.maxProcessedTime = Long.MIN_VALUE + this.readConsistencyOffset;
-                }
-
-                if (retrievedStates3.size() == 1) {
-                    this.dirWatermark = Instant.ofEpochMilli(retrievedStates3.get(0));
-                    LOG.info("{} retrieved a directory watermark for {} of {}.",
-                            getClass().getSimpleName(), this.path, dirWatermark);
-                } else {
-                    LOG.info("{} I don't know what the directory watermark is {} of {}.",
-                            getClass().getSimpleName(), this.path, retrievedStates3);
                 }
             }
 
@@ -334,7 +294,7 @@ public class ContinuousFileMonitoringFunction<OUT>
     }
 
     @Override
-    public void run(SourceContext<TimestampedFileInputSplit> context) throws Exception {
+    public void run(SourceFunction.SourceContext<TimestampedFileInputSplit> context) throws Exception {
         Path p = new Path(path);
         FileSystem fileSystem = FileSystem.get(p.toUri());
         if (!fileSystem.exists(p)) {
@@ -381,98 +341,15 @@ public class ContinuousFileMonitoringFunction<OUT>
                                             SourceContext<TimestampedFileInputSplit> context) throws IOException {
         assert (Thread.holdsLock(checkpointLock));
 
-        Map<Path, FileStatus> eligibleFiles;
-
-        // When dirScanChunkSizeInSeconds > 0, we will partition the directories basing on their name (conversion
-        //  from names to timestamps), and only read the folders with timestamps within dirRescanIntervalInSeconds
-        //  up to the dirWatermark.
-        //
-        if (dirScanChunkSizeInSeconds > 0) {
-            eligibleFiles = new HashMap<>();
-            // availableDirs is the list of directories have mapped timestamp equal to or greater than
-            // the current (low) watermark
-            SortedMap<Instant, List<FileStatus>> availableDirs = listDirsAfterTimestamp(fs, new Path(path),
-                    dirWatermark.minusSeconds(dirRescanIntervalInSeconds));
-
-            if (availableDirs.size() > 0) {
-                Instant curWindowBegin = dirWatermark.minusSeconds(dirRescanIntervalInSeconds);
-
-                // list the eligible files in the current chunk
-                // if no files was found, (fast) forward to the next chunk
-                SortedMap<Instant, List<FileStatus>> curDirsChunk, nextDirsChunk;
-                while (true) {
-                    Instant curWindowEnd = curWindowBegin.plusSeconds(dirScanChunkSizeInSeconds);
-                    curDirsChunk = availableDirs.subMap(curWindowBegin, curWindowEnd);
-                    nextDirsChunk = availableDirs.tailMap(curWindowEnd);
-
-                    for (List<FileStatus> dirsAtCurTimestamp : curDirsChunk.values()) {
-                        for (FileStatus directory : dirsAtCurTimestamp) {
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug("Listing files in dir: " + directory);
-                            }
-                            eligibleFiles.putAll(listEligibleFiles(fs, directory.getPath()));
-                        }
-                    }
-
-                    if (eligibleFiles.size() == 0 && !nextDirsChunk.isEmpty()) {
-                        curWindowBegin = nextDirsChunk.firstKey();
-                    } else
-                        break;
-                }
-
-                // if some eligible files have been found then bring the (high) dirWatermark forward
-                // upto the latest directory timestamp
-                if (eligibleFiles.size() > 0 && curDirsChunk.lastKey().isAfter(dirWatermark)) {
-                    if (LOG.isDebugEnabled())
-                        LOG.debug("{} has dir watermark being advanced from {} to {}", path, dirWatermark, curDirsChunk.lastKey());
-                    dirWatermark = curDirsChunk.lastKey();
-                }
-
-//                Instant latestTimestamp = dirWatermark.minusSeconds(dirRescanIntervalInSeconds);
-//                Instant curWindowEnd = latestTimestamp.plusSeconds(dirScanChunkSizeInSeconds);
-//                for (Map.Entry<Instant, List<FileStatus>> directories : availableDirs.entrySet()) {
-//                    Instant curDirTimestamp = directories.getKey();
-//                    // when the currentDirectoryTimestamp is later than the currentWindowEnd:
-//                    //  (1) if some eligible files have been identified, then break the loop, to make sure that
-//                    //      all files in the current window have been processed before advancing the window.
-//                    //  (2) if no eligible files have been identified, then fast forward the window to the
-//                    //      currentDirectoryTimestamp
-//                    if (!curWindowEnd.isAfter(curDirTimestamp)) {
-//                        if (eligibleFiles.size() > 0) {
-//                            break;
-//                        } else {
-//                            curWindowEnd = curDirTimestamp.plusSeconds(dirScanChunkSizeInSeconds);
-//                        }
-//                    }
-//                    latestTimestamp = curDirTimestamp;
-//                    for (FileStatus directory : directories.getValue()) {
-//                        if (LOG.isDebugEnabled()) {
-//                            LOG.debug("Listing files in dir: " + directory);
-//                        }
-//                        eligibleFiles.putAll(listEligibleFiles(fs, directory.getPath()));
-//                    }
-//                }
-//
-//                // if some eligible files have been found then bring the (high) dirWatermark forward
-//                // upto the latest directory timestamp
-//                if (eligibleFiles.size() > 0 && latestTimestamp.isAfter(dirWatermark)) {
-//                    LOG.info("{} has dir watermark being advanced from {} to {}", path, dirWatermark, latestTimestamp);
-//                    dirWatermark = latestTimestamp;
-//                }
-            }
-
-        } else {
-            eligibleFiles = listEligibleFiles(fs, new Path(path));
-        }
+        Map<Path, FileStatus> eligibleFiles = listEligibleFiles(fs, new Path(path), false);
+        this.calculateNextDirScanWindow(eligibleFiles.size());
 
         Map<Long, List<TimestampedFileInputSplit>> splitsSortedByModTime = getInputSplitsSortedByModTime(eligibleFiles);
 
         for (Map.Entry<Long, List<TimestampedFileInputSplit>> splits: splitsSortedByModTime.entrySet()) {
             long modificationTime = splits.getKey();
             for (TimestampedFileInputSplit split: splits.getValue()) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Forwarding split: " + split);
-                }
+                LOG.info("Forwarding split: " + split);
                 context.collect(split);
             }
             // update the global modification time
@@ -482,14 +359,7 @@ public class ContinuousFileMonitoringFunction<OUT>
         // This check is to ensure that globalModificationTime will not go backward
         // even if readConsistencyOffset is changed to a large value after a restore from checkpoint,
         // so  files would be processed twice
-//        long currentMaxModificationTime = maxProcessedTime - readConsistencyOffset;
-//        if (currentMaxModificationTime > globalModificationTime) {
-//            LOG.info("{} has globalModificationTime advanced from {} to {}",
-//                    path, globalModificationTime, currentMaxModificationTime);
-//            globalModificationTime = currentMaxModificationTime;
-//        }
         globalModificationTime = Math.max(maxProcessedTime - readConsistencyOffset, globalModificationTime);
-//        LOG.info("{} has current globalModificationTime of {}", path, globalModificationTime);
 
         processedFiles.entrySet().removeIf(item -> item.getValue() <= globalModificationTime);
         for (FileStatus fileStatus: eligibleFiles.values()) {
@@ -509,44 +379,23 @@ public class ContinuousFileMonitoringFunction<OUT>
     private Map<Long, List<TimestampedFileInputSplit>> getInputSplitsSortedByModTime(
             Map<Path, FileStatus> eligibleFiles) throws IOException {
 
+        Map<Long, List<TimestampedFileInputSplit>> splitsByModTime = new TreeMap<>();
         if (eligibleFiles.isEmpty()) {
-            return Collections.emptyMap();
+            return splitsByModTime;
         }
 
-        Map<Long, List<TimestampedFileInputSplit>> splitsByModTime = new TreeMap<>();
-
-        // returns if unsplittable
-        if (format.getNumSplits() == 1) {
-            int splitNum = 0;
-            for (final FileStatus file : eligibleFiles.values()) {
-                if (format.acceptFile(file)) {
-                    final FileSystem fs = file.getPath().getFileSystem();
-                    final BlockLocation[] blocks = fs.getFileBlockLocations(file, 0, file.getLen());
-                    Set<String> hosts = new HashSet<String>();
-                    for (BlockLocation block : blocks) {
-                        hosts.addAll(Arrays.asList(block.getHosts()));
-                    }
-
-                    Long modTime = file.getModificationTime();
-                    splitsByModTime.computeIfAbsent(modTime, k -> new ArrayList<>())
-                            .add(new TimestampedFileInputSplit(modTime, splitNum++, file.getPath(),
-                                    0, -1, hosts.toArray(new String[hosts.size()])));
+        for (FileInputSplit split: format.createInputSplits(readerParallelism)) {
+            FileStatus fileStatus = eligibleFiles.get(split.getPath());
+            if (fileStatus != null) {
+                Long modTime = fileStatus.getModificationTime();
+                List<TimestampedFileInputSplit> splitsToForward = splitsByModTime.get(modTime);
+                if (splitsToForward == null) {
+                    splitsToForward = new ArrayList<>();
+                    splitsByModTime.put(modTime, splitsToForward);
                 }
-            }
-        } else {
-            for (FileInputSplit split : format.createInputSplits(readerParallelism)) {
-                FileStatus fileStatus = eligibleFiles.get(split.getPath());
-                if (fileStatus != null) {
-                    Long modTime = fileStatus.getModificationTime();
-                    List<TimestampedFileInputSplit> splitsToForward = splitsByModTime.get(modTime);
-                    if (splitsToForward == null) {
-                        splitsToForward = new ArrayList<>();
-                        splitsByModTime.put(modTime, splitsToForward);
-                    }
-                    splitsToForward.add(new TimestampedFileInputSplit(
-                            modTime, split.getSplitNumber(), split.getPath(),
-                            split.getStart(), split.getLength(), split.getHostnames()));
-                }
+                splitsToForward.add(new TimestampedFileInputSplit(
+                        modTime, split.getSplitNumber(), split.getPath(),
+                        split.getStart(), split.getLength(), split.getHostnames()));
             }
         }
         return splitsByModTime;
@@ -556,7 +405,8 @@ public class ContinuousFileMonitoringFunction<OUT>
      * Returns the paths of the files not yet processed.
      * @param fileSystem The filesystem where the monitored directory resides.
      */
-    private Map<Path, FileStatus> listEligibleFiles(FileSystem fileSystem, Path path) throws IOException {
+    private Map<Path, FileStatus> listEligibleFiles(FileSystem fileSystem, Path path, boolean firstScan)
+            throws IOException {
 
         final FileStatus[] statuses;
         try {
@@ -574,138 +424,20 @@ public class ContinuousFileMonitoringFunction<OUT>
             Map<Path, FileStatus> files = new HashMap<>();
             // handle the new files
             for (FileStatus status : statuses) {
-                if (format.acceptFile(status)) {
-                    if (!status.isDir()) {
-                        Path filePath = status.getPath();
-                        long modificationTime = status.getModificationTime();
-                        if (!shouldIgnore(filePath, modificationTime)) {
-                            files.put(filePath, status);
-                        }
-                    } else if (format.getNestedFileEnumeration()) {
-                        files.putAll(listEligibleFiles(fileSystem, status.getPath()));
+                if (!status.isDir()) {
+                    Path filePath = status.getPath();
+                    long modificationTime = status.getModificationTime();
+                    if (firstScan || !shouldIgnore(filePath, modificationTime)) {
+                        files.put(filePath, status);
+                    }
+                } else if (format.getNestedFileEnumeration() && format.acceptFile(status)){
+                    int scanEligibility = this.shouldScanDir(status);
+                    if (scanEligibility > 0) {
+                        files.putAll(listEligibleFiles(fileSystem, status.getPath(), scanEligibility == 2));
                     }
                 }
             }
             return files;
-        }
-    }
-
-    /***
-     /**
-     * Returns the paths of the files not yet processed.
-     * @param fileSystem The filesystem where the monitored directory resides.
-     * @param path       The root of monitoring path
-     * @param watermark
-     * @return
-     * @throws IOException
-     */
-    private SortedMap<Instant, List<FileStatus>> listDirsAfterTimestamp(FileSystem fileSystem, Path path, Instant watermark) throws IOException {
-
-        final FileStatus[] statuses;
-        try {
-            statuses = fileSystem.listStatus(path);
-        } catch (IOException e) {
-            // we may run into an IOException if files are moved while listing their status
-            // delay the check for eligible files in this case
-            return Collections.emptySortedMap();
-        }
-
-        if (statuses == null) {
-            LOG.warn("Path does not exist: {}", path);
-            return Collections.emptySortedMap();
-        } else if (statuses.length == 0) {
-            return Collections.emptySortedMap();
-        } else {
-            TreeMap<Instant, List<FileStatus>> dirsSortedByTimestamp = new TreeMap<>();
-            // handle the new files
-            for (FileStatus status : statuses) {
-                if (status.isDir() && format.acceptFile(status)) {
-                    ChronoUnit curDirLevel = getDirectoryLevel(status);
-                    Instant curDirTimestamp = getDirectoryTimestamp(status);
-                    switch (curDirLevel) {
-                        // in case of ChronoUnit.FOREVER: list all sub directories (one level deeper), no matter what
-                        // the current mapped directory timestamp is
-                        case FOREVER:
-                            listDirsAfterTimestamp(fileSystem, status.getPath(), watermark)
-                                    .forEach((k, v) ->
-                                            dirsSortedByTimestamp.merge(k, v, (v1, v2) -> {
-                                                v1.addAll(v2);
-                                                return v1;
-                                            }));
-                            break;
-                        // in case of ChronoUnit.SECONDS down to ChronoUnit.NANOS, check the mapped timestamp of
-                        // the currentDir, and add it to the list of might-be-eligible directories if that timestamp
-                        // is greater than or equal to the current (low) watermark
-                        case SECONDS:
-                        case MILLIS:
-                        case MICROS:
-                        case NANOS:
-                            if (!watermark.isAfter(curDirTimestamp)) {
-                                List<FileStatus> tmpDirsList = dirsSortedByTimestamp.get(curDirTimestamp);
-                                if (tmpDirsList == null) {
-                                    tmpDirsList = new ArrayList<>();
-                                    dirsSortedByTimestamp.put(curDirTimestamp, tmpDirsList);
-                                }
-                                tmpDirsList.add(status);
-                            }
-                            break;
-                        // in case of ChronoUnit.MINUTES or higher, check the mapped timestamp of the currentDir
-                        // against the *TRUNCATED-to-currentDir-level* watermark, and add it to the list of
-                        // might-be-eligible directories if that timestamp is greater than or equal to that
-                        // truncated watermark.
-                        // One example of the case where this truncation helps is watermark is 9:20, while the current
-                        // directory has timestamp of 9:00 but has child directories of 9:25, 9:30,...
-                        default:
-                            if (!watermark.truncatedTo(curDirLevel).isAfter(curDirTimestamp)) {
-                                listDirsAfterTimestamp(fileSystem, status.getPath(), watermark)
-                                        .forEach((k, v) ->
-                                                dirsSortedByTimestamp.merge(k, v, (v1, v2) -> {
-                                                    v1.addAll(v2);
-                                                    return v1;
-                                                }));
-                            }
-                    }
-                }
-            }
-            return dirsSortedByTimestamp;
-        }
-    }
-
-    /***
-     * Override this method to change the way directory names get mapped to timestamps
-     * @param directory
-     * @return
-     */
-    protected Instant getDirectoryTimestamp(FileStatus directory) {
-        String relativePath = directory.getPath().getPath().split(basePath, 2)[1];
-        String dirs[] = relativePath.split("/");
-        try {
-            if (dirs.length == 1) {
-                DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd").withZone(ZoneOffset.UTC);
-                return LocalDate.parse(relativePath, formatter).atStartOfDay().toInstant(ZoneOffset.UTC);
-            } else {
-                DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd/HHmm").withZone(ZoneOffset.UTC);
-                return ZonedDateTime.parse(relativePath, formatter).toInstant();
-            }
-        } catch (java.time.format.DateTimeParseException ex) {
-            return IGNORE_THIS_DIRECTORY;
-        }
-    }
-
-    /***
-     * Override this function to change the way directory level is interpreted
-     * @param directory
-     * @return a ChronoUnit. This will be later be used in listDirsAfterTimestamp function to decide whether to keep
-     *         listing the subdirectories (one level below) or not. If the return value is ChronoUnit.FOREVER, then
-     *         subdirectories will be listed.
-     */
-    protected ChronoUnit getDirectoryLevel(FileStatus directory) {
-        String relativePath = directory.getPath().getPath().split(basePath, 2)[1];
-        String dirs[] = relativePath.split("/");
-        switch (dirs.length) {
-            case 1: return ChronoUnit.DAYS;
-            case 2: return ChronoUnit.SECONDS;
-            default: return ChronoUnit.FOREVER;
         }
     }
 
@@ -728,6 +460,71 @@ public class ContinuousFileMonitoringFunction<OUT>
                     filePath, modificationTime, globalModificationTime, maxProcessedTime);
         }
         return shouldIgnore;
+    }
+
+
+    public interface DirectoriesPartitioner {
+        Tuple2<Long, Long> getDirectoryTimeInfo(FileStatus directory);
+        int getForwardRange();
+        int getRescanRange();
+    }
+
+    /**
+     * Check eligibily to scan of a sub directory.
+     * The method may be overridden, for e.g. to delay the scan of this sub-directory.
+     *
+     * @param fileStatus The file status to check.
+     * @return
+     *      2: first time eligible to scan
+     *      1: already scanned, but should scan again
+     *      0: should not be scanned
+     *      -1: already scanned, to not scan again
+     *      -2: have not scanned, but not to scan now
+     */
+    protected int shouldScanDir(FileStatus fileStatus) {
+        if (directoriesPartitioner == null) {
+            return 1;
+        }
+        Tuple2<Long, Long> dirInfo = directoriesPartitioner.getDirectoryTimeInfo(fileStatus);
+        Preconditions.checkState(dirInfo.f0 <= dirInfo.f1, "Partition-end must NOT be ahead of parttion-begin");
+
+        // partition is in the future, so set `nearestFutureTimestamp` to the mininum of these,
+        // and return -2 so this directory won't be scanned
+        if (dirInfo.f0 >= windowEnd) {
+            if (nearestFutureTimestamp < windowEnd || dirInfo.f0 < nearestFutureTimestamp) {
+                nearestFutureTimestamp = dirInfo.f0;
+            }
+            return -2;
+        }
+        // partition is in the past, return -1 so this directory won't be scanned
+        if (dirInfo.f1 <= windowBegin) {
+            return -1;
+        }
+
+        // set `maxCurrentTimestamp`
+        if (maxCurrentTimestamp < dirInfo.f0) {
+            maxCurrentTimestamp = dirInfo.f0;
+        }
+
+        return ((dirInfo.f0 >= prevWindowEnd) ? 2 : 1);
+    }
+
+    private long calculateNextDirScanWindow(int previousScanCount) {
+        if (directoriesPartitioner == null) {
+            return Long.MIN_VALUE;
+        }
+
+        prevWindowEnd = windowEnd;
+        windowBegin = (maxCurrentTimestamp > Long.MIN_VALUE + directoriesPartitioner.getRescanRange()) ?
+                (maxCurrentTimestamp - directoriesPartitioner.getRescanRange()) : Long.MIN_VALUE;
+        long temp = Math.max(nearestFutureTimestamp, maxCurrentTimestamp);
+        windowEnd = (temp < Long.MAX_VALUE - directoriesPartitioner.getForwardRange()) ?
+                (temp + directoriesPartitioner.getForwardRange()) : Long.MAX_VALUE;
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("(prevWindowEnd, windowBegin, windowEnd): ", prevWindowEnd, windowBegin, windowEnd);
+        }
+        return prevWindowEnd;
     }
 
     @Override
@@ -774,8 +571,6 @@ public class ContinuousFileMonitoringFunction<OUT>
         this.checkpointedState.add(this.globalModificationTime);
         this.checkpointedStateProcessedFilesList.clear();
         this.checkpointedStateProcessedFilesList.add(this.processedFiles);
-        this.checkpointedStateDirWatermark.clear();
-        this.checkpointedStateDirWatermark.add(this.dirWatermark.toEpochMilli());
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("{} checkpointed globalModificationTime {}, and {} files.",

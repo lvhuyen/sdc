@@ -3,14 +3,14 @@ package com.starfox.analysis.copper.sdc.data
 /**
   * Created by Huyen on 30/9/18.
   */
-case class SdcDataInstant(ifAdminStatus: Boolean,
-                          ifOperStatus: Boolean,
+case class SdcDataInstant(ifAdminStatus: String,
+                          ifOperStatus: String,
                           actualDs: Int,
                           actualUs: Int,
                           attndrDs: Int,
                           attndrUs: Int,
                           attenuationDs: Option[Short],
-                          userMacAddress: String
+                          userMacAddress: Option[String]
                          ) {
     def toMap: Map[String, Any] = {
         Map (
@@ -27,6 +27,6 @@ case class SdcDataInstant(ifAdminStatus: Boolean,
 }
 
 object SdcDataInstant {
-    val EMPTY = SdcDataInstant(false, false, -1, -1, -1, -1, None, null)
+    val EMPTY = SdcDataInstant("", "", -1, -1, -1, -1, None, None)
     def apply(): SdcDataInstant = EMPTY
 }

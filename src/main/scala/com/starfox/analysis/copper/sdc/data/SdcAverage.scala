@@ -6,7 +6,7 @@ import org.json4s.jackson.Serialization.write
 /**
   * Created by Huyen on 11/7/18.
   */
-case class SdcAverage(ts: Long, dslam: String, port: String,
+case class SdcAverage(var ts: Long, var dslam: String, var port: String,
 					  enrich: SdcDataEnrichment,
 					  average_ds: Int, average_us: Int,
 					  measurements_count: Long

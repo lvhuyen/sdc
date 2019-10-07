@@ -19,8 +19,8 @@ package com.starfox.analysis.copper.sdc.data
 
 
 trait CopperLine extends TemporalEvent {
-	val dslam: String
-	val port: String
+	var  dslam: String
+	var  port: String
 
 	def toMap: Map[String, Any] = {
 		Map (

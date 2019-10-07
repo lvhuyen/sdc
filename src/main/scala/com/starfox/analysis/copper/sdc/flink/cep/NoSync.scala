@@ -28,7 +28,7 @@ object NoSync {
 				.times(numberOfReInitMeasurements - numberOfOperUpMeasurements).consecutive()
         		.next("statusCheck")
 				.where((value: SdcCompact, ctx: CepContext[SdcCompact]) =>
-					value.ifOperStatus &&
+					value.ifOperStatus.equals("up") &&
 							accSum(_.reInit.getOrElse(0: Short), Seq("reInitCheck", "statusCheck"), value, ctx) < maxReInitCount &&
 							accSum(_.uas.getOrElse(0: Short), Seq("statusCheck"), value, ctx) < maxUnAvailableSecond)
 				.times(numberOfOperUpMeasurements).consecutive()

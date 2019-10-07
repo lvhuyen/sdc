@@ -1,6 +1,9 @@
 package com.starfox.analysis.copper.sdc.flink.source
 
 import java.io.IOException
+import java.lang
+import java.time.format.{DateTimeFormatter, DateTimeParseException}
+import java.time.{LocalDate, ZoneOffset, ZonedDateTime}
 import java.util.concurrent.TimeUnit
 
 import com.codahale.metrics.SlidingTimeWindowReservoir
@@ -9,7 +12,8 @@ import com.starfox.analysis.copper.sdc.data.{DslamMetadata, DslamRaw, PortFormat
 import com.starfox.analysis.copper.sdc.utils.InvalidDataException
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.flink.api.common.io.{CheckpointableInputFormat, FileInputFormat}
-import org.apache.flink.core.fs.{FileInputSplit, Path}
+import org.apache.flink.api.java.tuple
+import org.apache.flink.core.fs.{FileInputSplit, FileStatus, Path}
 import org.apache.flink.dropwizard.metrics.{DropwizardHistogramWrapper, DropwizardMeterWrapper}
 import org.apache.flink.metrics.{Counter, Histogram, Meter}
 import org.apache.flink.streaming.api.functions.source.TimestampedFileInputSplit
@@ -18,6 +22,8 @@ import org.slf4j.{Logger, LoggerFactory}
 
 import scala.annotation.tailrec
 import scala.util.{Failure, Success}
+import SdcTarInputFormat._
+import com.starfox.flink.source.ContinuousFileMonitoringFunction.DirectoriesPartitioner
 
 /**
   * Created by Huyen on 8/8/18.
@@ -26,11 +32,21 @@ import scala.util.{Failure, Success}
 object SdcTarInputFormat {
 	val LOG: Logger = LoggerFactory.getLogger(classOf[SdcTarInputFormat])
 	val FILE_MOD_TIME_UNKNOWN = Long.MinValue
+	val FORWARD_RANGE: Int = 15 * 60 * 1000
+	// To rescan one folder (either 1ms or 1s or 10 minutes has same meaning in this case)
+	val RESCAN_RANGE: Int = 1000
+	// Parent folders (date level) timespan is 1 day
+	val ONE_DAY_IN_MS: Long = 24 * 60 * 60 * 1000
+	// Leaf folders timespan is 10 minutes
+	val LEAF_FOLDER_TIME_SPAN_MS: Long = 10 * 60 * 1000
+	// Folder_time_span for folders with bad format - ignore the folder
+	val BAD_FOLDER_TIMESTAMP: tuple.Tuple2[lang.Long, lang.Long] = new tuple.Tuple2(Long.MinValue, Long.MinValue)
 }
 
 class SdcTarInputFormat(filePath: Path, metricsPrefix: String, truncatePathWhileLoggingUpToLevel: Int = 0)
 		extends FileInputFormat[DslamRaw[Map[String,String]]] (filePath)
-				with CheckpointableInputFormat[FileInputSplit, Integer] {
+				with CheckpointableInputFormat[FileInputSplit, Integer]
+				with DirectoriesPartitioner {
 
 	lazy val FILES_COUNT: Counter = getRuntimeContext.getMetricGroup.addGroup("Chronos-SDC").counter(s"$metricsPrefix-Files-Count")
 	lazy val BAD_FILES_COUNT: Counter = getRuntimeContext.getMetricGroup.addGroup("Chronos-SDC").counter(s"$metricsPrefix-Bad-Files-Count")
@@ -40,6 +56,8 @@ class SdcTarInputFormat(filePath: Path, metricsPrefix: String, truncatePathWhile
 				new com.codahale.metrics.Histogram(new SlidingTimeWindowReservoir(15, TimeUnit.MINUTES))))
 	lazy val DELAY_METER: Meter = getRuntimeContext.getMetricGroup.addGroup("Chronos-SDC")
 			.meter(s"$metricsPrefix-Files-Delay_Meter", new DropwizardMeterWrapper(new com.codahale.metrics.Meter()))
+
+	val basePath: String = filePath.getPath + (if (filePath.getPath.endsWith("/")) "" else "/")
 
 	this.unsplittable = true
 	this.numSplits = 1
@@ -233,4 +251,28 @@ class SdcTarInputFormat(filePath: Path, metricsPrefix: String, truncatePathWhile
 		this.open(split)
 	}
 
+	override def getForwardRange: Int = FORWARD_RANGE
+	override def getRescanRange: Int = RESCAN_RANGE
+
+	override def getDirectoryTimeInfo(directory: FileStatus): tuple.Tuple2[lang.Long, lang.Long] = {
+		val relativePath = directory.getPath.getPath.split(basePath, 2)(1)
+		val dirs = relativePath.split("/")
+		try
+			if (dirs.length == 1) {
+				val formatter = DateTimeFormatter.ofPattern("yyyyMMdd").withZone(ZoneOffset.UTC)
+				val start = LocalDate.parse(relativePath, formatter).atStartOfDay.toInstant(ZoneOffset.UTC).toEpochMilli
+				new tuple.Tuple2(start, start + ONE_DAY_IN_MS)
+			}
+			else {
+				val formatter = DateTimeFormatter.ofPattern("yyyyMMdd/HHmm").withZone(ZoneOffset.UTC)
+				val start = ZonedDateTime.parse(relativePath, formatter).toInstant.toEpochMilli
+				new tuple.Tuple2(start, start + LEAF_FOLDER_TIME_SPAN_MS)
+			}
+		catch {
+			case ex: DateTimeParseException =>
+				if (LOG.isDebugEnabled) LOG.debug(s"Error parsing datetime from $relativePath")
+				//				LOG.warn(s"Error parsing datetime from $relativePath")
+				BAD_FOLDER_TIMESTAMP
+		}
+	}
 }
