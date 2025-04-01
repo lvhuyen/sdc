@@ -107,7 +107,7 @@ under the License.
 		<dependency>
 			<groupId>org.apache.parquet</groupId>
 			<artifactId>parquet-avro</artifactId>
-			<version>1.10.0</version>
+			<version>1.15.1</version>
 		</dependency>
 		<!-- Add connector dependencies here. They must be in the default scope (compile). -->
 		<dependency>
